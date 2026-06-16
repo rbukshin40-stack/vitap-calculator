@@ -44,7 +44,19 @@ export default function App() {
     return buildShiftedVariants(rawResult, Number(coordinateShift) || 0);
   }, [coordinateShift, rawResult]);
   const result = rawResult;
-  const visibleVariants = shiftedVariants.length > 0 ? shiftedVariants : rawResult.variants;
+  const visibleVariants = shiftedVariants;
+  const detailLength = Number(length) || 0;
+  const minimumOffset = Number(minOffset) || 0;
+  const isUnsafeVariant = (values: number[]) => {
+    if (values.length === 0) {
+      return false;
+    }
+
+    const leftOffset = values[0];
+    const rightOffset = detailLength - values[values.length - 1];
+
+    return leftOffset < minimumOffset || rightOffset < minimumOffset;
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -59,7 +71,7 @@ export default function App() {
           <SegmentButton active={mode === 'symmetry'} label="Симметрия" onPress={() => setMode('symmetry')} />
           <SegmentButton
             active={mode === 'standard'}
-            label="Стандартный отступ"
+            label="Произвольный"
             onPress={() => setMode('standard')}
           />
         </View>
@@ -99,50 +111,82 @@ export default function App() {
           <InputField label="Смещение координат" unit="мм" value={coordinateShift} onChangeText={setCoordinateShift} />
         </View>
 
-        <Pressable style={styles.primaryButton}>
-          <Text style={styles.primaryButtonText}>Рассчитать</Text>
-        </Pressable>
-
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Результат</Text>
           <View style={styles.offsetBlock}>
             <Text style={styles.offsetLabel}>Фактический отступ</Text>
             <Text style={styles.offsetValue}>{result.offset} мм</Text>
           </View>
-
-          <View style={styles.tableHeader}>
-            <Text style={styles.tableHeaderText}>Координата</Text>
-            <Text style={styles.tableHeaderText}>Гнездо</Text>
-          </View>
-
-          {result.coordinates.map((item, index) => (
-            <View key={`${item.coordinate}-${index}`} style={styles.resultRow}>
-              <Text style={styles.resultCoordinate}>{item.coordinate} мм</Text>
-              <SocketBadge socket={item.socket} />
+          <View style={styles.metricsRow}>
+            <View style={styles.metricBlock}>
+              <Text style={styles.metricLabel}>База между крайними отверстиями</Text>
+              <Text style={styles.metricValue}>{result.base} мм</Text>
             </View>
-          ))}
-        </View>
+            <View style={styles.metricBlock}>
+              <Text style={styles.metricLabel}>Количество шагов</Text>
+              <Text style={styles.metricValue}>{result.steps}</Text>
+            </View>
+          </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Альтернативные варианты</Text>
-          <View style={styles.variantsRow}>
-            {visibleVariants.map((variant) => (
-              <View key={variant.title} style={styles.variantCard}>
-                <Text style={styles.variantTitle}>{variant.title}</Text>
-                <View style={styles.variantValues}>
-                  {variant.values.map((value, index) => (
-                    <Text key={`${variant.title}-${value}-${index}`} style={styles.valuePill}>
-                      {value}
-                    </Text>
-                  ))}
+          <View style={styles.coordinatesSocketsBlock}>
+            <View style={styles.coordinatesColumn}>
+              <Text style={styles.tableHeaderText}>Координата</Text>
+              {result.coordinates.map((item, index) => (
+                <Text key={`${item.coordinate}-${index}`} style={styles.resultCoordinate}>
+                  {item.coordinate} мм
+                </Text>
+              ))}
+            </View>
+            <View style={styles.socketSetsColumn}>
+              <Text style={styles.socketSetsTitle}>Возможные пары гнёзд</Text>
+              {result.variants.slice(0, 3).map((variant) => (
+                <View key={variant.title} style={styles.socketSetRow}>
+                  <Text style={styles.socketSetName}>{variant.title}</Text>
+                  <View style={styles.socketSetBadges}>
+                    {variant.sockets.map((socket, index) => (
+                      <SocketBadge key={`${variant.title}-${socket}-${index}`} socket={socket} />
+                    ))}
+                  </View>
                 </View>
-                <Pressable style={styles.chooseButton}>
-                  <Text style={styles.chooseButtonText}>Выбрать</Text>
-                </Pressable>
-              </View>
-            ))}
+              ))}
+            </View>
           </View>
         </View>
+
+        {visibleVariants.length > 0 ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Альтернативные варианты</Text>
+            <View style={styles.variantsRow}>
+              {visibleVariants.slice(0, 3).map((variant) => {
+                const unsafe = isUnsafeVariant(variant.values);
+
+                return (
+                  <View key={variant.title} style={[styles.variantCard, unsafe && styles.variantCardWarning]}>
+                    <Text style={styles.variantTitle}>{variant.title}</Text>
+                    <View style={styles.variantValues}>
+                      {variant.values.map((value, index) => (
+                        <Text key={`${variant.title}-${value}-${index}`} style={styles.valuePill}>
+                          {value}
+                        </Text>
+                      ))}
+                    </View>
+                    <Text style={styles.variantSocketLabel}>
+                      {variant.sockets.length === 2 ? 'Пара гнёзд' : 'Комплект гнёзд'}
+                    </Text>
+                    <View style={styles.variantSockets}>
+                      {variant.sockets.map((socket, index) => (
+                        <SocketBadge key={`${variant.title}-${socket}-${index}`} socket={socket} />
+                      ))}
+                    </View>
+                    <Pressable style={styles.chooseButton}>
+                      <Text style={styles.chooseButtonText}>Выбрать</Text>
+                    </Pressable>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        ) : null}
 
         <View style={styles.actions}>
           <SecondaryButton label="Копировать мм" />
@@ -402,18 +446,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     marginTop: -4,
   },
-  primaryButton: {
-    alignItems: 'center',
-    backgroundColor: BLUE,
-    borderRadius: 14,
-    height: 52,
-    justifyContent: 'center',
-  },
-  primaryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 17,
-    fontWeight: '800',
-  },
   cardTitle: {
     color: '#111827',
     fontSize: 18,
@@ -436,6 +468,31 @@ const styles = StyleSheet.create({
     fontSize: 32,
     fontWeight: '900',
   },
+  metricsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  metricBlock: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    borderWidth: 1,
+    flex: 1,
+    gap: 4,
+    minHeight: 78,
+    padding: 10,
+  },
+  metricLabel: {
+    color: '#64748B',
+    fontSize: 11,
+    fontWeight: '700',
+    lineHeight: 14,
+  },
+  metricValue: {
+    color: '#111827',
+    fontSize: 24,
+    fontWeight: '900',
+  },
   tableHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -449,6 +506,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
+  coordinatesSocketsBlock: {
+    borderTopColor: '#E2E8F0',
+    borderTopWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    paddingTop: 10,
+  },
+  coordinatesColumn: {
+    gap: 10,
+    width: 92,
+  },
+  socketSetsColumn: {
+    flex: 1,
+    gap: 8,
+  },
   resultCoordinate: {
     color: '#111827',
     fontSize: 16,
@@ -458,6 +530,30 @@ const styles = StyleSheet.create({
     color: '#64748B',
     fontSize: 15,
     fontWeight: '600',
+  },
+  socketSetsBlock: {
+    borderTopColor: '#E2E8F0',
+    borderTopWidth: 1,
+    gap: 8,
+    paddingTop: 10,
+  },
+  socketSetsTitle: {
+    color: '#64748B',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  socketSetRow: {
+    gap: 6,
+  },
+  socketSetName: {
+    color: '#111827',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  socketSetBadges: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
   },
   socketBadge: {
     alignItems: 'center',
@@ -499,6 +595,7 @@ const styles = StyleSheet.create({
   },
   variantsRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 10,
   },
   variantCard: {
@@ -506,9 +603,13 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
     borderRadius: 16,
     borderWidth: 1,
-    flex: 1,
     gap: 8,
     padding: 10,
+    width: '48.5%',
+  },
+  variantCardWarning: {
+    borderColor: '#DC2626',
+    borderWidth: 2,
   },
   variantTitle: {
     color: '#111827',
@@ -516,6 +617,16 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   variantValues: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 5,
+  },
+  variantSocketLabel: {
+    color: '#64748B',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  variantSockets: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 5,
