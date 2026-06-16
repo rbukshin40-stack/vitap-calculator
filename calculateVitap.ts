@@ -112,6 +112,7 @@ export function calculateVitap(
 
   if (mode === 'standard') {
     const coordinates = coordinatesFromOffset(minOffset, 32, safeHoles);
+    const sockets = coordinates.map((_, index) => VITAP_SOCKETS[standardStartSocketIndex + index] ?? '-');
 
     return {
       offset: minOffset,
@@ -119,18 +120,18 @@ export function calculateVitap(
       steps: Math.max(safeHoles - 1, 0),
       coordinates: coordinates.map((coordinate, index) => ({
         coordinate,
-        socket: VITAP_SOCKETS[standardStartSocketIndex + index] ?? '-',
+        socket: sockets[index] ?? '-',
       })),
       variants: [
         {
           title: 'Стандартный шаг',
           values: coordinates,
-          sockets: coordinates.map((_, index) => VITAP_SOCKETS[standardStartSocketIndex + index] ?? '-'),
+          sockets,
         },
         {
           title: 'Смещение -16 мм',
           values: coordinates.map((coordinate) => coordinate - 16),
-          sockets: coordinates.map((_, index) => VITAP_SOCKETS[standardStartSocketIndex + index] ?? '-'),
+          sockets,
         },
       ],
     };
