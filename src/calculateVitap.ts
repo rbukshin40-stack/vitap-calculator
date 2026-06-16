@@ -5,7 +5,7 @@ export type Result = {
   base: number;
   steps: number;
   coordinates: Array<{ coordinate: number; socket: string }>;
-  variants: Array<{ title: string; values: number[] }>;
+  variants: Array<{ title: string; values: number[]; sockets: string[] }>;
 };
 
 export type SocketParts = {
@@ -112,6 +112,7 @@ export function calculateVitap(
 
   if (mode === 'standard') {
     const coordinates = coordinatesFromOffset(minOffset, 32, safeHoles);
+    const sockets = coordinates.map((_, index) => VITAP_SOCKETS[standardStartSocketIndex + index] ?? '-');
 
     return {
       offset: minOffset,
@@ -119,16 +120,18 @@ export function calculateVitap(
       steps: Math.max(safeHoles - 1, 0),
       coordinates: coordinates.map((coordinate, index) => ({
         coordinate,
-        socket: VITAP_SOCKETS[standardStartSocketIndex + index] ?? '-',
+        socket: sockets[index] ?? '-',
       })),
       variants: [
         {
           title: 'Стандартный шаг',
           values: coordinates,
+          sockets,
         },
         {
           title: 'Смещение -16 мм',
           values: coordinates.map((coordinate) => coordinate - 16),
+          sockets,
         },
       ],
     };
@@ -155,6 +158,7 @@ export function calculateVitap(
     variants: variants.map((values, index) => ({
       title: variants.length === 1 ? 'Сохранить крайние' : `Вариант ${index + 1}`,
       values,
+      sockets: symmetrySockets(values, first, steps),
     })),
   };
 }
@@ -170,10 +174,12 @@ export function shiftedVariants(result: Result, shiftInput: number) {
     {
       title: `Смещение влево -${shift} мм`,
       values: result.coordinates.map((item) => item.coordinate - shift),
+      sockets: result.coordinates.map((item) => item.socket),
     },
     {
       title: `Смещение вправо +${shift} мм`,
       values: result.coordinates.map((item) => item.coordinate + shift),
+      sockets: result.coordinates.map((item) => item.socket),
     },
   ];
 }
