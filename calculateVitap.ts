@@ -4,6 +4,7 @@ export type Result = {
   offset: number;
   base: number;
   steps: number;
+  intervalSteps: number[];
   coordinates: Array<{ coordinate: number; socket: string }>;
   variants: Array<{ title: string; values: number[]; sockets: string[] }>;
 };
@@ -23,7 +24,10 @@ export function socketLabel(position: number) {
     return '0';
   }
 
-  return position < 0 ? `${Math.abs(position)}L` : `${position}R`;
+  const value = Math.abs(position);
+  const side = (value / 32) % 2 === 0 ? 'R' : 'L';
+
+  return `${value}${side}`;
 }
 
 export function parseSocket(socket: string): SocketParts | null {
@@ -37,8 +41,18 @@ export function parseSocket(socket: string): SocketParts | null {
   return { number, side };
 }
 
+export function socketNumericValue(socket: string) {
+  const parts = parseSocket(socket);
+
+  return parts ? Number(parts.number) || 0 : 0;
+}
+
 function coordinatesFromOffset(offset: number, step: number, holes: number) {
   return Array.from({ length: holes }, (_, index) => Math.round(offset + step * index));
+}
+
+function intervalStepsFromCoordinates(coordinates: number[]) {
+  return coordinates.slice(1).map((coordinate, index) => Math.round((coordinate - coordinates[index]) / 32));
 }
 
 function combineValues<T>(items: T[], count: number): T[][] {
@@ -118,6 +132,7 @@ export function calculateVitap(
       offset: minOffset,
       base: safeHoles > 1 ? (safeHoles - 1) * 32 : 0,
       steps: Math.max(safeHoles - 1, 0),
+      intervalSteps: intervalStepsFromCoordinates(coordinates),
       coordinates: coordinates.map((coordinate, index) => ({
         coordinate,
         socket: sockets[index] ?? '-',
@@ -146,11 +161,13 @@ export function calculateVitap(
   const variants = symmetryVariants(first, last, steps, safeHoles, length / 2);
   const primaryCoordinates = variants[0] ?? [Math.round(first), Math.round(last)];
   const primarySockets = symmetrySockets(primaryCoordinates, first, steps);
+  const intervalSteps = intervalStepsFromCoordinates(primaryCoordinates);
 
   return {
     offset,
     base,
     steps,
+    intervalSteps,
     coordinates: primaryCoordinates.map((coordinate, index) => ({
       coordinate,
       socket: primarySockets[index] ?? '-',

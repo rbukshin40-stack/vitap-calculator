@@ -13,12 +13,14 @@ import {
   calculateVitap,
   parseSocket,
   shiftedVariants as buildShiftedVariants,
-  type Mode,
+  socketNumericValue,
+type Mode,
   VITAP_SOCKETS,
 } from './src/calculateVitap';
 
 const BLUE = '#2563EB';
 const holeOptions = Array.from({ length: 15 }, (_, index) => index + 1);
+type MachineSide = 'left' | 'right';
 
 export default function App() {
   const [mode, setMode] = useState<Mode>('symmetry');
@@ -29,6 +31,7 @@ export default function App() {
   const [isDropdownOpen, setDropdownOpen] = useState(false);
   const [standardStartSocketIndex, setStandardStartSocketIndex] = useState(10);
   const [isSocketDropdownOpen, setSocketDropdownOpen] = useState(false);
+  const [machineSide, setMachineSide] = useState<MachineSide>('right');
 
   useEffect(() => {
     const maxStartSocketIndex = Math.max(VITAP_SOCKETS.length - holes, 0);
@@ -45,6 +48,9 @@ export default function App() {
   }, [coordinateShift, rawResult]);
   const result = rawResult;
   const visibleVariants = shiftedVariants;
+  const shouldShowIntervalSteps = mode === 'symmetry' && result.intervalSteps.length > 1;
+  const startSocket = VITAP_SOCKETS[standardStartSocketIndex] ?? '0';
+  const fencePosition = socketNumericValue(startSocket) + result.offset;
   const detailLength = Number(length) || 0;
   const minimumOffset = Number(minOffset) || 0;
   const isUnsafeVariant = (values: number[]) => {
@@ -91,40 +97,58 @@ export default function App() {
             }}
             value={holes}
           />
-          {mode === 'standard' ? (
-            <SocketDropdownField
-              isOpen={isSocketDropdownOpen}
-              label="Начальное гнездо"
-              onPress={() => {
-                setDropdownOpen(false);
-                setSocketDropdownOpen((value) => !value);
-              }}
-              onSelect={(value) => {
-                setStandardStartSocketIndex(value);
-                setSocketDropdownOpen(false);
-              }}
-              value={standardStartSocketIndex}
-              holes={holes}
-            />
-          ) : null}
+          <SocketDropdownField
+            isOpen={isSocketDropdownOpen}
+            label="Стартовое гнездо"
+            machineSide={machineSide}
+            onPress={() => {
+              setDropdownOpen(false);
+              setSocketDropdownOpen((value) => !value);
+            }}
+            onMachineSideSelect={setMachineSide}
+            onSelect={(value) => {
+              setStandardStartSocketIndex(value);
+              setSocketDropdownOpen(false);
+            }}
+            value={standardStartSocketIndex}
+            holes={holes}
+          />
           <InputField label="Минимальный отступ" unit="мм" value={minOffset} onChangeText={setMinOffset} />
           <InputField label="Смещение координат" unit="мм" value={coordinateShift} onChangeText={setCoordinateShift} />
         </View>
 
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Результат</Text>
-          <View style={styles.offsetBlock}>
-            <Text style={styles.offsetLabel}>Фактический отступ</Text>
-            <Text style={styles.offsetValue}>{result.offset} мм</Text>
-          </View>
-          <View style={styles.metricsRow}>
-            <View style={styles.metricBlock}>
-              <Text style={styles.metricLabel}>База между крайними отверстиями</Text>
-              <Text style={styles.metricValue}>{result.base} мм</Text>
+          <View style={styles.primaryResultBlock}>
+            <View style={styles.primaryResultTop}>
+              <View style={styles.primaryResultItem}>
+                <Text style={styles.offsetLabel}>Фактический отступ</Text>
+                <Text style={styles.offsetValue}>{result.offset} мм</Text>
+              </View>
+              <View style={styles.primaryResultDivider} />
+              <View style={styles.primaryResultItem}>
+                <Text style={styles.fenceLabel}>УПОР</Text>
+                <Text style={styles.fenceValue}>{fencePosition} мм</Text>
+              </View>
             </View>
-            <View style={styles.metricBlock}>
-              <Text style={styles.metricLabel}>Количество шагов</Text>
-              <Text style={styles.metricValue}>{result.steps}</Text>
+            <View style={styles.fenceFormulaRow}>
+              <SocketBadge socket={startSocket} />
+              <Text style={styles.fenceFormulaText}>+ {result.offset} мм</Text>
+            </View>
+          </View>
+          <View style={styles.metricBlock}>
+            <Text style={styles.metricLabel}>База и шаги между отверстиями</Text>
+            <View style={styles.metricSummaryRow}>
+              <View style={styles.metricSummaryItem}>
+                <Text style={styles.metricSubLabel}>База</Text>
+                <Text style={styles.metricValue}>{result.base} мм</Text>
+              </View>
+              <View style={styles.metricSummaryDivider} />
+              <View style={styles.metricSummaryItem}>
+                <Text style={styles.metricSubLabel}>Шаги</Text>
+                <Text style={styles.metricValue}>{result.steps}</Text>
+                {shouldShowIntervalSteps ? <StepModel intervalSteps={result.intervalSteps} /> : null}
+              </View>
             </View>
           </View>
 
@@ -143,6 +167,7 @@ export default function App() {
                 <View key={variant.title} style={styles.socketSetRow}>
                   <Text style={styles.socketSetName}>{variant.title}</Text>
                   <View style={styles.socketSetBadges}>
+                    <EdgeDirectionIndicator side={machineSide} />
                     {variant.sockets.map((socket, index) => (
                       <SocketBadge key={`${variant.title}-${socket}-${index}`} socket={socket} />
                     ))}
@@ -189,8 +214,6 @@ export default function App() {
         ) : null}
 
         <View style={styles.actions}>
-          <SecondaryButton label="Копировать мм" />
-          <SecondaryButton label="Копировать мм + гнёзда" />
           <SecondaryButton label="Сохранить расчёт" />
         </View>
       </ScrollView>
@@ -204,6 +227,23 @@ function SegmentButton({ active, label, onPress }: { active: boolean; label: str
     <Pressable style={[styles.segmentButton, active && styles.segmentButtonActive]} onPress={onPress}>
       <Text style={[styles.segmentText, active && styles.segmentTextActive]}>{label}</Text>
     </Pressable>
+  );
+}
+
+function StepModel({ intervalSteps }: { intervalSteps: number[] }) {
+  const values = [0, ...intervalSteps];
+
+  return (
+    <View style={styles.stepModel}>
+      {values.map((value, index) => (
+        <View key={`${value}-${index}`} style={styles.stepChipGroup}>
+          <Text style={[styles.stepChip, index === 0 && styles.stepChipStart]}>
+            {value}
+          </Text>
+          {index < values.length - 1 ? <Text style={styles.stepSeparator}>/</Text> : null}
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -288,10 +328,22 @@ function SocketBadge({ socket }: { socket: string }) {
   );
 }
 
+function EdgeDirectionIndicator({ compact = false, side }: { compact?: boolean; side: MachineSide }) {
+  return (
+    <View style={[styles.edgeDirection, compact && styles.edgeDirectionCompact, side === 'right' && styles.edgeDirectionRight]}>
+      <View style={styles.edgeTick} />
+      <View style={styles.edgeArrowLine} />
+      <View style={styles.edgeArrowHead} />
+    </View>
+  );
+}
+
 function SocketDropdownField({
   holes,
   isOpen,
   label,
+  machineSide,
+  onMachineSideSelect,
   onPress,
   onSelect,
   value,
@@ -299,12 +351,21 @@ function SocketDropdownField({
   holes: number;
   isOpen: boolean;
   label: string;
+  machineSide: MachineSide;
+  onMachineSideSelect: (value: MachineSide) => void;
   onPress: () => void;
   onSelect: (value: number) => void;
   value: number;
 }) {
-  const maxStartSocketIndex = Math.max(VITAP_SOCKETS.length - holes, 0);
-  const availableSockets = VITAP_SOCKETS.slice(0, maxStartSocketIndex + 1);
+  const socketItems = VITAP_SOCKETS.map((socket, index) => ({ socket, index }));
+  const centerIndex = VITAP_SOCKETS.findIndex((socket) => socket === '0');
+  const leftSockets = socketItems.filter((item) => item.index < centerIndex);
+  const centerSocket = socketItems.find((item) => item.index === centerIndex);
+  const rightSockets = socketItems.filter((item) => item.index > centerIndex).reverse();
+  const columns: Array<{ items: Array<{ socket: string; index: number }>; label: string; side: MachineSide }> = [
+    { items: leftSockets, label: 'Слева', side: 'left' },
+    { items: rightSockets, label: 'Справа', side: 'right' },
+  ];
 
   return (
     <View style={styles.inputGroup}>
@@ -312,21 +373,48 @@ function SocketDropdownField({
       <Pressable style={styles.inputBox} onPress={onPress}>
         <View style={styles.dropdownSocketValue}>
           <SocketBadge socket={VITAP_SOCKETS[value]} />
+          <Text style={styles.dropdownSideValue}>{machineSide === 'left' ? 'слева' : 'справа'}</Text>
         </View>
         <Text style={styles.chevron}>⌄</Text>
       </Pressable>
       {isOpen ? (
         <View style={styles.socketDropdownMenu}>
-          {availableSockets.map((option, index) => (
-            <Pressable
-              key={option}
-              style={[styles.socketOption, index === value && styles.inlineOptionActive]}
-              onPress={() => onSelect(index)}
-            >
-              <SocketBadge socket={option} />
-              {index === value ? <Text style={styles.inlineSelectedMark}>✓</Text> : null}
-            </Pressable>
+          {columns.map((column) => (
+            <View key={column.side} style={styles.socketColumn}>
+              <View style={styles.socketColumnHeader}>
+                <EdgeDirectionIndicator side={column.side} />
+                <Text style={styles.socketColumnTitle}>{column.label}</Text>
+              </View>
+              {column.items.map((item) => {
+                const active = item.index === value && machineSide === column.side;
+
+                return (
+                  <Pressable
+                    key={`${column.side}-${item.socket}-${item.index}`}
+                    style={[styles.socketOption, active && styles.inlineOptionActive]}
+                    onPress={() => {
+                      onMachineSideSelect(column.side);
+                      onSelect(item.index);
+                    }}
+                  >
+                    <SocketBadge socket={item.socket} />
+                    {active ? <Text style={styles.inlineSelectedMark}>✓</Text> : null}
+                  </Pressable>
+                );
+              })}
+            </View>
           ))}
+          {centerSocket ? (
+            <View style={styles.socketCenterRow}>
+              <Pressable
+                style={[styles.socketOption, styles.socketCenterOption, centerSocket.index === value && styles.inlineOptionActive]}
+                onPress={() => onSelect(centerSocket.index)}
+              >
+                <SocketBadge socket={centerSocket.socket} />
+                {centerSocket.index === value ? <Text style={styles.inlineSelectedMark}>✓</Text> : null}
+              </Pressable>
+            </View>
+          ) : null}
         </View>
       ) : null}
     </View>
@@ -458,6 +546,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
+  primaryResultBlock: {
+    backgroundColor: '#DBEAFE',
+    borderRadius: 12,
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  primaryResultTop: {
+    alignItems: 'stretch',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  primaryResultItem: {
+    flex: 1,
+    gap: 1,
+  },
+  primaryResultDivider: {
+    backgroundColor: '#BFDBFE',
+    width: 1,
+  },
   offsetLabel: {
     color: BLUE,
     fontSize: 12,
@@ -482,6 +590,25 @@ const styles = StyleSheet.create({
     minHeight: 78,
     padding: 10,
   },
+  metricSummaryRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  metricSummaryItem: {
+    flex: 1,
+    gap: 2,
+  },
+  metricSummaryDivider: {
+    backgroundColor: '#E2E8F0',
+    height: 46,
+    width: 1,
+  },
+  metricSubLabel: {
+    color: '#64748B',
+    fontSize: 11,
+    fontWeight: '800',
+  },
   metricLabel: {
     color: '#64748B',
     fontSize: 11,
@@ -491,6 +618,70 @@ const styles = StyleSheet.create({
   metricValue: {
     color: '#111827',
     fontSize: 24,
+    fontWeight: '900',
+  },
+  fenceBlock: {
+    backgroundColor: '#EFF6FF',
+    borderColor: BLUE,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    flex: 1,
+    gap: 6,
+    padding: 12,
+  },
+  fenceLabel: {
+    color: BLUE,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0,
+  },
+  fenceValue: {
+    color: '#111827',
+    fontSize: 30,
+    fontWeight: '900',
+  },
+  fenceFormulaRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  fenceFormulaText: {
+    color: '#64748B',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  stepModel: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginTop: 2,
+  },
+  stepChipGroup: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 4,
+  },
+  stepChip: {
+    backgroundColor: '#E0ECFF',
+    borderRadius: 999,
+    color: BLUE,
+    fontSize: 12,
+    fontWeight: '900',
+    minWidth: 24,
+    overflow: 'hidden',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    textAlign: 'center',
+  },
+  stepChipStart: {
+    backgroundColor: '#F1F5F9',
+    color: '#64748B',
+  },
+  stepSeparator: {
+    color: '#64748B',
+    fontSize: 13,
     fontWeight: '900',
   },
   tableHeader: {
@@ -549,6 +740,48 @@ const styles = StyleSheet.create({
     color: '#111827',
     fontSize: 12,
     fontWeight: '800',
+  },
+  edgeDirection: {
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderColor: '#CBD5E1',
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: 'row',
+    height: 24,
+    justifyContent: 'center',
+    width: 48,
+  },
+  edgeDirectionCompact: {
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    height: 18,
+    width: 28,
+  },
+  edgeDirectionRight: {
+    transform: [{ scaleX: -1 }],
+  },
+  edgeTick: {
+    backgroundColor: '#111827',
+    borderRadius: 999,
+    height: 14,
+    width: 2,
+  },
+  edgeArrowLine: {
+    backgroundColor: '#111827',
+    height: 2,
+    marginLeft: 4,
+    width: 22,
+  },
+  edgeArrowHead: {
+    borderBottomColor: 'transparent',
+    borderBottomWidth: 4,
+    borderLeftColor: '#111827',
+    borderLeftWidth: 6,
+    borderTopColor: 'transparent',
+    borderTopWidth: 4,
+    height: 0,
+    width: 0,
   },
   socketSetBadges: {
     flexDirection: 'row',
@@ -687,9 +920,25 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
-    padding: 6,
+    gap: 8,
+    padding: 8,
     width: '100%',
+  },
+  socketColumn: {
+    flex: 1,
+    gap: 5,
+    minWidth: 0,
+  },
+  socketColumnHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+    minHeight: 26,
+  },
+  socketColumnTitle: {
+    color: '#64748B',
+    fontSize: 12,
+    fontWeight: '900',
   },
   inlineOption: {
     alignItems: 'center',
@@ -703,10 +952,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 8,
     flexDirection: 'row',
-    gap: 4,
+    gap: 5,
+    justifyContent: 'space-between',
     minHeight: 28,
-    paddingHorizontal: 8,
-    width: '30.8%',
+    paddingHorizontal: 6,
+  },
+  socketCenterRow: {
+    alignItems: 'center',
+    borderTopColor: '#E2E8F0',
+    borderTopWidth: 1,
+    marginTop: 2,
+    paddingTop: 8,
+    width: '100%',
+  },
+  socketCenterOption: {
+    justifyContent: 'center',
+    minWidth: 96,
   },
   inlineOptionActive: {
     backgroundColor: '#DBEAFE',
@@ -724,6 +985,14 @@ const styles = StyleSheet.create({
   dropdownSocketValue: {
     flex: 1,
     alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  dropdownSideValue: {
+    alignSelf: 'center',
+    color: '#64748B',
+    fontSize: 12,
+    fontWeight: '800',
   },
   inlineSelectedMark: {
     color: BLUE,
