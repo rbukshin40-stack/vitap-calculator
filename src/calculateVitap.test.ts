@@ -98,3 +98,33 @@ describe('standard offset mode', () => {
 
     expect(values(result)).toEqual([37, 69, 101, 133]);
     expect(sockets(result)).toEqual(['0', '32L', '64R', '96L']);
+  });
+
+  it('can start from a physical socket and continue through neighboring sockets', () => {
+    const result = calculateVitap(0, 3, 37, 'standard', 3);
+
+    expect(values(result)).toEqual([37, 69, 101]);
+    expect(sockets(result)).toEqual(['224L', '192R', '160L']);
+  });
+});
+
+describe('coordinate shift alternatives', () => {
+  it('does not mutate the main result and produces left and right shifted alternatives', () => {
+    const result = calculateVitap(500, 3, 37, 'symmetry', 10);
+    const variants = shiftedVariants(result, 16);
+
+    expect(values(result)).toEqual([42, 234, 458]);
+    expect(variants).toEqual([
+      {
+        title: 'Смещение влево -16 мм',
+        values: [26, 218, 442],
+        sockets: ['224L', '32L', '192R'],
+      },
+      {
+        title: 'Смещение вправо +16 мм',
+        values: [58, 250, 474],
+        sockets: ['224L', '32L', '192R'],
+      },
+    ]);
+  });
+});
