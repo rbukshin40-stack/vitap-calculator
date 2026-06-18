@@ -52,6 +52,7 @@ export default function App() {
   const startSocket = VITAP_SOCKETS[standardStartSocketIndex] ?? '0';
   const fencePosition = socketNumericValue(startSocket) + result.offset;
   const detailLength = Number(length) || 0;
+  const isCrossDrilling = detailLength > 800;
   const minimumOffset = Number(minOffset) || 0;
   const isUnsafeVariant = (values: number[]) => {
     if (values.length === 0) {
@@ -97,22 +98,24 @@ export default function App() {
             }}
             value={holes}
           />
-          <SocketDropdownField
-            isOpen={isSocketDropdownOpen}
-            label="Стартовое гнездо"
-            machineSide={machineSide}
-            onPress={() => {
-              setDropdownOpen(false);
-              setSocketDropdownOpen((value) => !value);
-            }}
-            onMachineSideSelect={setMachineSide}
-            onSelect={(value) => {
-              setStandardStartSocketIndex(value);
-              setSocketDropdownOpen(false);
-            }}
-            value={standardStartSocketIndex}
-            holes={holes}
-          />
+          {!isCrossDrilling ? (
+            <SocketDropdownField
+              isOpen={isSocketDropdownOpen}
+              label="Стартовое гнездо"
+              machineSide={machineSide}
+              onPress={() => {
+                setDropdownOpen(false);
+                setSocketDropdownOpen((value) => !value);
+              }}
+              onMachineSideSelect={setMachineSide}
+              onSelect={(value) => {
+                setStandardStartSocketIndex(value);
+                setSocketDropdownOpen(false);
+              }}
+              value={standardStartSocketIndex}
+              holes={holes}
+            />
+          ) : null}
           <InputField label="Минимальный отступ" unit="мм" value={minOffset} onChangeText={setMinOffset} />
           <InputField label="Смещение координат" unit="мм" value={coordinateShift} onChangeText={setCoordinateShift} />
         </View>
@@ -125,16 +128,25 @@ export default function App() {
                 <Text style={styles.offsetLabel}>Фактический отступ</Text>
                 <Text style={styles.offsetValue}>{result.offset} мм</Text>
               </View>
-              <View style={styles.primaryResultDivider} />
-              <View style={styles.primaryResultItem}>
-                <Text style={styles.fenceLabel}>УПОР</Text>
-                <Text style={styles.fenceValue}>{fencePosition} мм</Text>
+              {!isCrossDrilling ? (
+                <>
+                  <View style={styles.primaryResultDivider} />
+                  <View style={styles.primaryResultItem}>
+                    <Text style={styles.fenceLabel}>УПОР</Text>
+                    <Text style={styles.fenceValue}>{fencePosition} мм</Text>
+                  </View>
+                </>
+              ) : null}
+            </View>
+            {!isCrossDrilling ? (
+              <View style={styles.fenceFormulaRow}>
+                <SocketBadge socket={startSocket} />
+                <Text style={styles.fenceFormulaText}>+ {result.offset} мм</Text>
               </View>
-            </View>
-            <View style={styles.fenceFormulaRow}>
-              <SocketBadge socket={startSocket} />
-              <Text style={styles.fenceFormulaText}>+ {result.offset} мм</Text>
-            </View>
+            ) : null}
+            {isCrossDrilling ? (
+              <Text style={styles.crossDrillingNote}>Деталь шире 800 мм: сверление поперёк планки, упор и пары гнёзд не нужны.</Text>
+            ) : null}
           </View>
           <View style={styles.metricBlock}>
             <Text style={styles.metricLabel}>База и шаги между отверстиями</Text>
@@ -161,20 +173,22 @@ export default function App() {
                 </Text>
               ))}
             </View>
-            <View style={styles.socketSetsColumn}>
-              <Text style={styles.socketSetsTitle}>Возможные пары гнёзд</Text>
-              {result.variants.slice(0, 3).map((variant) => (
-                <View key={variant.title} style={styles.socketSetRow}>
-                  <Text style={styles.socketSetName}>{variant.title}</Text>
-                  <View style={styles.socketSetBadges}>
-                    <EdgeDirectionIndicator side={machineSide} />
-                    {variant.sockets.map((socket, index) => (
-                      <SocketBadge key={`${variant.title}-${socket}-${index}`} socket={socket} />
-                    ))}
+            {!isCrossDrilling ? (
+              <View style={styles.socketSetsColumn}>
+                <Text style={styles.socketSetsTitle}>Возможные пары гнёзд</Text>
+                {result.variants.slice(0, 3).map((variant) => (
+                  <View key={variant.title} style={styles.socketSetRow}>
+                    <Text style={styles.socketSetName}>{variant.title}</Text>
+                    <View style={styles.socketSetBadges}>
+                      <EdgeDirectionIndicator side={machineSide} />
+                      {variant.sockets.map((socket, index) => (
+                        <SocketBadge key={`${variant.title}-${socket}-${index}`} socket={socket} />
+                      ))}
+                    </View>
                   </View>
-                </View>
-              ))}
-            </View>
+                ))}
+              </View>
+            ) : null}
           </View>
         </View>
 
@@ -650,6 +664,12 @@ const styles = StyleSheet.create({
     color: '#64748B',
     fontSize: 13,
     fontWeight: '800',
+  },
+  crossDrillingNote: {
+    color: '#1E3A8A',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 16,
   },
   stepModel: {
     alignItems: 'center',
