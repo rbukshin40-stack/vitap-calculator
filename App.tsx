@@ -51,6 +51,9 @@ export default function App() {
   const shouldShowIntervalSteps = mode === 'symmetry' && result.intervalSteps.length > 1;
   const startSocket = VITAP_SOCKETS[standardStartSocketIndex] ?? '0';
   const fencePosition = socketNumericValue(startSocket) + result.offset;
+  const displayedOffset = Math.round(result.offset);
+  const displayedFencePosition = Math.round(fencePosition);
+  const fenceTitle = machineSide === 'right' ? 'Правый упор' : 'Левый упор';
   const detailLength = Number(length) || 0;
   const isCrossDrilling = detailLength > 800;
   const minimumOffset = Number(minOffset) || 0;
@@ -126,14 +129,14 @@ export default function App() {
             <View style={styles.primaryResultTop}>
               <View style={styles.primaryResultItem}>
                 <Text style={styles.offsetLabel}>Фактический отступ</Text>
-                <Text style={styles.offsetValue}>{result.offset} мм</Text>
+                <Text style={styles.offsetValue}>{displayedOffset} мм</Text>
               </View>
               {!isCrossDrilling ? (
                 <>
                   <View style={styles.primaryResultDivider} />
                   <View style={styles.primaryResultItem}>
-                    <Text style={styles.fenceLabel}>УПОР</Text>
-                    <Text style={styles.fenceValue}>{fencePosition} мм</Text>
+                    <Text style={styles.fenceLabel}>{fenceTitle}</Text>
+                    <Text style={styles.fenceValue}>{displayedFencePosition} мм</Text>
                   </View>
                 </>
               ) : null}
@@ -141,7 +144,7 @@ export default function App() {
             {!isCrossDrilling ? (
               <View style={styles.fenceFormulaRow}>
                 <SocketBadge socket={startSocket} />
-                <Text style={styles.fenceFormulaText}>+ {result.offset} мм</Text>
+                <Text style={styles.fenceFormulaText}>+ {displayedOffset} мм</Text>
               </View>
             ) : null}
             {isCrossDrilling ? (
