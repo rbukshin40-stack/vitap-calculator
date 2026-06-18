@@ -98,3 +98,103 @@ function symmetryVariants(first: number, last: number, steps: number, holes: num
   if (available.length <= internalCount) {
     return [[Math.round(first), ...available.map(Math.round), Math.round(last)]];
   }
+
+  const ranked = available
+    .map((coordinate) => ({
+      coordinate,
+      distance: Math.abs(coordinate - center),
+    }))
+    .sort((a, b) => a.distance - b.distance || a.coordinate - b.coordinate);
+  const threshold = ranked[internalCount - 1].distance;
+  const required = ranked.filter((item) => item.distance < threshold).map((item) => item.coordinate);
+  const tied = ranked.filter((item) => item.distance === threshold).map((item) => item.coordinate);
+  const neededFromTie = internalCount - required.length;
+
+  return combineValues(tied, neededFromTie)
+    .slice(0, 8)
+    .map((combination) => [first, ...required, ...combination, last].sort((a, b) => a - b).map(Math.round));
+}
+
+export function calculateVitap(
+  length: number,
+  holes: number,
+  minOffset: number,
+  mode: Mode,
+  standardStartSocketIndex: number,
+): Result {
+  const safeHoles = Math.max(1, Math.min(15, holes));
+
+  if (mode === 'standard') {
+    const coordinates = coordinatesFromOffset(minOffset, 32, safeHoles);
+    const sockets = coordinates.map((_, index) => VITAP_SOCKETS[standardStartSocketIndex + index] ?? '-');
+
+    return {
+      offset: minOffset,
+      base: safeHoles > 1 ? (safeHoles - 1) * 32 : 0,
+      steps: Math.max(safeHoles - 1, 0),
+      intervalSteps: intervalStepsFromCoordinates(coordinates),
+      coordinates: coordinates.map((coordinate, index) => ({
+        coordinate,
+        socket: sockets[index] ?? '-',
+      })),
+      variants: [
+        {
+          title: 'Стандартный шаг',
+          values: coordinates,
+          sockets,
+        },
+        {
+          title: 'Смещение -16 мм',
+          values: coordinates.map((coordinate) => coordinate - 16),
+          sockets,
+        },
+      ],
+    };
+  }
+
+  const baseMax = Math.max(length - 2 * minOffset, 0);
+  const steps = Math.floor(baseMax / 32);
+  const base = steps * 32;
+  const offset = (length - base) / 2;
+  const first = offset;
+  const last = offset + base;
+  const variants = symmetryVariants(first, last, steps, safeHoles, length / 2);
+  const primaryCoordinates = variants[0] ?? [Math.round(first), Math.round(last)];
+  const primarySockets = symmetrySockets(primaryCoordinates, first, steps);
+  const intervalSteps = intervalStepsFromCoordinates(primaryCoordinates);
+
+  return {
+    offset,
+    base,
+    steps,
+    intervalSteps,
+    coordinates: primaryCoordinates.map((coordinate, index) => ({
+      coordinate,
+      socket: primarySockets[index] ?? '-',
+    })),
+    variants: variants.map((values, index) => ({
+      title: variants.length === 1 ? 'Сохранить крайние' : `Вариант ${index + 1}`,
+      values,
+      sockets: symmetrySockets(values, first, steps),
+    })),
+  };
+}
+
+export function shiftedVariants(result: Result, shiftInput: number) {
+  const shift = Math.abs(shiftInput || 0);
+
+  if (shift === 0) {
+    return [];
+  }
+
+  return [
+    {
+      title: `Смещение влево -${shift} мм`,
+      values: result.coordinates.map((item) => item.coordinate - shift),
+      sockets: result.coordinates.map((item) => item.socket),
+    },
+    {
+      title: `Смещение вправо +${shift} мм`,
+      values: result.coordinates.map((item) => item.coordinate + shift),
+      sockets: result.coordinates.map((item) => item.socket),
+    },
