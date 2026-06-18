@@ -14,7 +14,7 @@ import {
   parseSocket,
   shiftedVariants as buildShiftedVariants,
   socketNumericValue,
-type Mode,
+  type Mode,
   VITAP_SOCKETS,
 } from './src/calculateVitap';
 
