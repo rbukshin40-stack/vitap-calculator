@@ -198,3 +198,5 @@ export function shiftedVariants(result: Result, shiftInput: number) {
       values: result.coordinates.map((item) => item.coordinate + shift),
       sockets: result.coordinates.map((item) => item.socket),
     },
+  ];
+}
