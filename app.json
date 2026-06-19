@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "vitap-calculator",
-    "slug": "vitap-calculator",
+    "name": "32 system Calculator",
+    "slug": "32-system",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
