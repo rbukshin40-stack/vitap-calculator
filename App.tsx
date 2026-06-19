@@ -73,7 +73,7 @@ export default function App() {
       <StatusBar style="dark" />
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
-          <Text style={styles.title}>Vitap Calculator</Text>
+          <Text style={styles.title}>32 system Calculator</Text>
           <Text style={styles.subtitle}>Расчёт отверстий для системы 32</Text>
         </View>
 
