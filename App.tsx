@@ -42,6 +42,29 @@ type HistoryItem = {
 
 const HISTORY_KEY = '32-system-calculator-history-v1';
 const HISTORY_LIMIT = 10;
+const CENTER_SOCKET_INDEX = VITAP_SOCKETS.findIndex((socket) => socket === '0');
+
+function normalizeSocketIndexForSide(socketIndex: number, machineSide: MachineSide) {
+  if (socketIndex === CENTER_SOCKET_INDEX) {
+    return socketIndex;
+  }
+
+  const isAlreadyOnSide =
+    machineSide === 'left' ? socketIndex < CENTER_SOCKET_INDEX : socketIndex > CENTER_SOCKET_INDEX;
+
+  if (isAlreadyOnSide) {
+    return socketIndex;
+  }
+
+  const socket = VITAP_SOCKETS[socketIndex];
+  const sideStart = machineSide === 'left' ? 0 : CENTER_SOCKET_INDEX + 1;
+  const sideEnd = machineSide === 'left' ? CENTER_SOCKET_INDEX : VITAP_SOCKETS.length;
+  const matchingIndex = VITAP_SOCKETS.findIndex(
+    (candidate, index) => index >= sideStart && index < sideEnd && candidate === socket,
+  );
+
+  return matchingIndex === -1 ? socketIndex : matchingIndex;
+}
 
 export default function App() {
   const [mode, setMode] = useState<Mode>('symmetry');
@@ -54,6 +77,7 @@ export default function App() {
   const [isSocketDropdownOpen, setSocketDropdownOpen] = useState(false);
   const [machineSide, setMachineSide] = useState<MachineSide>('right');
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const startSocketIndex = normalizeSocketIndexForSide(standardStartSocketIndex, machineSide);
 
   useEffect(() => {
     async function loadHistory() {
@@ -95,22 +119,22 @@ export default function App() {
   }, []);
 
   const rawResult = useMemo(
-    () => calculateVitap(Number(length) || 0, holes, Number(minOffset) || 0, mode, standardStartSocketIndex, machineSide),
-    [holes, length, machineSide, minOffset, mode, standardStartSocketIndex],
+    () => calculateVitap(Number(length) || 0, holes, Number(minOffset) || 0, mode, startSocketIndex, machineSide),
+    [holes, length, machineSide, minOffset, mode, startSocketIndex],
   );
   const shiftedVariants = useMemo(() => {
     return buildShiftedVariants(rawResult, Number(coordinateShift) || 0);
   }, [coordinateShift, rawResult]);
   const result = rawResult;
   const visibleVariants = shiftedVariants;
-  const shouldShowIntervalSteps = mode === 'symmetry' && result.intervalSteps.length > 1;
-  const startSocket = VITAP_SOCKETS[standardStartSocketIndex] ?? '0';
+  const detailLength = Number(length) || 0;
+  const isCrossDrilling = detailLength > 800;
+  const shouldShowIntervalSteps = !isCrossDrilling && mode === 'symmetry' && result.intervalSteps.length > 1;
+  const startSocket = VITAP_SOCKETS[startSocketIndex] ?? '0';
   const fencePosition = socketNumericValue(startSocket) + result.offset;
   const displayedOffset = Math.round(result.offset);
   const displayedFencePosition = Math.round(fencePosition);
   const fenceTitle = machineSide === 'right' ? 'Правый упор' : 'Левый упор';
-  const detailLength = Number(length) || 0;
-  const isCrossDrilling = detailLength > 800;
   const hasBase = result.base > 0;
   const minimumOffset = Number(minOffset) || 0;
   const isOffsetBelowMinimum = result.offset < minimumOffset;
@@ -142,7 +166,7 @@ export default function App() {
       holes,
       minOffset,
       coordinateShift,
-      standardStartSocketIndex,
+      standardStartSocketIndex: startSocketIndex,
       machineSide,
       coordinates: result.coordinates.map((coordinate) => coordinate.coordinate),
       sockets: result.coordinates.map((coordinate) => coordinate.socket),
@@ -151,7 +175,7 @@ export default function App() {
       steps: result.steps,
       fencePosition: displayedFencePosition,
     };
-    const duplicateKey = `${mode}|${length}|${holes}|${minOffset}|${coordinateShift}|${standardStartSocketIndex}|${machineSide}`;
+    const duplicateKey = `${mode}|${length}|${holes}|${minOffset}|${coordinateShift}|${startSocketIndex}|${machineSide}`;
     const nextHistory = [
       item,
       ...history.filter((historyItem) => {
@@ -225,7 +249,7 @@ export default function App() {
                 setStandardStartSocketIndex(value);
                 setSocketDropdownOpen(false);
               }}
-              value={standardStartSocketIndex}
+              value={startSocketIndex}
               holes={holes}
             />
           ) : null}
@@ -275,18 +299,24 @@ export default function App() {
               </View>
               {hasBase ? (
                 <View style={styles.metricBlock}>
-                  <Text style={styles.metricLabel}>База и шаги между отверстиями</Text>
+                  <Text style={styles.metricLabel}>
+                    {isCrossDrilling ? 'База между крайними отверстиями' : 'База и шаги между отверстиями'}
+                  </Text>
                   <View style={styles.metricSummaryRow}>
                     <View style={styles.metricSummaryItem}>
                       <Text style={styles.metricSubLabel}>База</Text>
                       <Text style={styles.metricValue}>{result.base} мм</Text>
                     </View>
-                    <View style={styles.metricSummaryDivider} />
-                    <View style={styles.metricSummaryItem}>
-                      <Text style={styles.metricSubLabel}>Шаги</Text>
-                      <Text style={styles.metricValue}>{result.steps}</Text>
-                      {shouldShowIntervalSteps ? <StepModel intervalSteps={result.intervalSteps} /> : null}
-                    </View>
+                    {!isCrossDrilling ? (
+                      <>
+                        <View style={styles.metricSummaryDivider} />
+                        <View style={styles.metricSummaryItem}>
+                          <Text style={styles.metricSubLabel}>Шаги</Text>
+                          <Text style={styles.metricValue}>{result.steps}</Text>
+                          {shouldShowIntervalSteps ? <StepModel intervalSteps={result.intervalSteps} /> : null}
+                        </View>
+                      </>
+                    ) : null}
                   </View>
                 </View>
               ) : null}
