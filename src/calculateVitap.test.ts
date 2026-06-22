@@ -92,10 +92,24 @@ describe('symmetry mode', () => {
     expect(result.steps).toBe(13);
     expect(result.intervalSteps).toEqual([6, 7]);
     expect(values(result)).toEqual([42, 234, 458]);
-    expect(sockets(result)).toEqual(['0', '192R', '-']);
+    expect(sockets(result)).toEqual(['192R', '0', '224L']);
     expect(result.variants.map((variant) => variant.values)).toEqual([
       [42, 234, 458],
       [42, 266, 458],
+    ]);
+    expect(result.variants.map((variant) => variant.sockets)).toEqual([
+      ['192R', '0', '224L'],
+      ['224L', '0', '192R'],
+    ]);
+  });
+
+  it('uses the selected center socket as an anchor when it creates a full three-hole socket set', () => {
+    const result = calculateVitap(500, 3, 37, 'symmetry', 10, 'right');
+
+    expect(values(result)).toEqual([42, 234, 458]);
+    expect(result.variants.map((variant) => variant.sockets)).toEqual([
+      ['192R', '0', '224L'],
+      ['224L', '0', '192R'],
     ]);
   });
 
@@ -145,7 +159,7 @@ describe('standard offset mode', () => {
     expect(result.base).toBe(416);
     expect(result.intervalSteps).toEqual([7, 6]);
     expect(values(result)).toEqual([37, 261, 453]);
-    expect(sockets(result)).toEqual(['0', '224L', '-']);
+    expect(sockets(result)).toEqual(['224L', '0', '192R']);
   });
 });
 
@@ -159,12 +173,12 @@ describe('coordinate shift alternatives', () => {
       {
         title: 'Смещение влево -16 мм',
         values: [26, 218, 442],
-        sockets: ['0', '192R', '-'],
+        sockets: ['192R', '0', '224L'],
       },
       {
         title: 'Смещение вправо +16 мм',
         values: [58, 250, 474],
-        sockets: ['0', '192R', '-'],
+        sockets: ['192R', '0', '224L'],
       },
     ]);
   });
