@@ -59,7 +59,7 @@ describe('symmetry mode', () => {
     expect(result.steps).toBe(13);
     expect(result.intervalSteps).toEqual([13]);
     expect(values(result)).toEqual([42, 458]);
-    expect(sockets(result)).toEqual(['224L', '192R']);
+    expect(sockets(result)).toEqual(['0', '-']);
   });
 
   it('shows both equally centered inner positions without shrinking the edge base', () => {
@@ -84,27 +84,44 @@ describe('symmetry mode', () => {
     expect(result.steps).toBe(13);
     expect(result.intervalSteps).toEqual([6, 7]);
     expect(values(result)).toEqual([42, 234, 458]);
-    expect(sockets(result)).toEqual(['224L', '32L', '192R']);
+    expect(sockets(result)).toEqual(['0', '192R', '-']);
     expect(result.variants.map((variant) => variant.values)).toEqual([
       [42, 234, 458],
       [42, 266, 458],
     ]);
   });
+
+  it('maps displayed socket variants from the selected start socket', () => {
+    const result = calculateVitap(500, 3, 37, 'symmetry', 1);
+
+    expect(values(result)).toEqual([42, 234, 458]);
+    expect(sockets(result)).toEqual(['288L', '96L', '128R']);
+    expect(result.variants.map((variant) => variant.sockets)).toEqual([
+      ['288L', '96L', '128R'],
+      ['288L', '64R', '128R'],
+    ]);
+  });
 });
 
 describe('standard offset mode', () => {
-  it('calculates coordinates with 32 mm step and maps real sockets from selected start', () => {
-    const result = calculateVitap(0, 4, 37, 'standard', 10);
+  it('keeps the entered edge offset and reduces the base to a 32 mm step', () => {
+    const result = calculateVitap(2000, 6, 100, 'standard', 10);
 
-    expect(values(result)).toEqual([37, 69, 101, 133]);
-    expect(sockets(result)).toEqual(['0', '32L', '64R', '96L']);
+    expect(result.offset).toBe(100);
+    expect(result.base).toBe(1792);
+    expect(result.steps).toBe(56);
+    expect(values(result)[0]).toBe(100);
+    expect(values(result).at(-1)).toBe(1892);
   });
 
-  it('can start from a physical socket and continue through neighboring sockets', () => {
-    const result = calculateVitap(0, 3, 37, 'standard', 3);
+  it('places internal holes on available 32 mm positions near the center', () => {
+    const result = calculateVitap(500, 3, 37, 'standard', 10);
 
-    expect(values(result)).toEqual([37, 69, 101]);
-    expect(sockets(result)).toEqual(['224L', '192R', '160L']);
+    expect(result.offset).toBe(37);
+    expect(result.base).toBe(416);
+    expect(result.intervalSteps).toEqual([7, 6]);
+    expect(values(result)).toEqual([37, 261, 453]);
+    expect(sockets(result)).toEqual(['0', '224L', '-']);
   });
 });
 
@@ -118,12 +135,12 @@ describe('coordinate shift alternatives', () => {
       {
         title: 'Смещение влево -16 мм',
         values: [26, 218, 442],
-        sockets: ['224L', '32L', '192R'],
+        sockets: ['0', '192R', '-'],
       },
       {
         title: 'Смещение вправо +16 мм',
         values: [58, 250, 474],
-        sockets: ['224L', '32L', '192R'],
+        sockets: ['0', '192R', '-'],
       },
     ]);
   });
