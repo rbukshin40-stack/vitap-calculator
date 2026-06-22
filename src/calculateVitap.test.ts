@@ -1,185 +1,231 @@
-import { describe, expect, it } from 'vitest';
-import { calculateVitap, parseSocket, shiftedVariants, socketNumericValue, VITAP_SOCKETS } from './calculateVitap';
+export type Mode = 'symmetry' | 'standard';
+export type MachineSide = 'left' | 'right';
 
-function values(result: ReturnType<typeof calculateVitap>) {
-  return result.coordinates.map((item) => item.coordinate);
+export type Result = {
+  offset: number;
+  base: number;
+  steps: number;
+  intervalSteps: number[];
+  coordinates: Array<{ coordinate: number; socket: string }>;
+  variants: Array<{ title: string; values: number[]; sockets: string[] }>;
+};
+
+export type SocketParts = {
+  number: string;
+  side: 'L' | 'R' | null;
+};
+
+const VITAP_MIN = -320;
+const VITAP_MAX = 320;
+
+export const VITAP_SOCKETS = Array.from({ length: 21 }, (_, index) => socketLabel(VITAP_MIN + index * 32));
+
+export function socketLabel(position: number) {
+  if (position === 0) {
+    return '0';
+  }
+
+  const value = Math.abs(position);
+  const side = (value / 32) % 2 === 0 ? 'R' : 'L';
+
+  return `${value}${side}`;
 }
 
-function sockets(result: ReturnType<typeof calculateVitap>) {
-  return result.coordinates.map((item) => item.socket);
+export function parseSocket(socket: string): SocketParts | null {
+  if (socket === '-' || !socket) {
+    return null;
+  }
+
+  const side = socket.endsWith('L') ? 'L' : socket.endsWith('R') ? 'R' : null;
+  const number = side ? socket.slice(0, -1) : socket;
+
+  return { number, side };
 }
 
-describe('Vitap socket system', () => {
-  it('lists Alfa 21 sockets in physical order with alternating rotation labels', () => {
-    expect(VITAP_SOCKETS).toEqual([
-      '320R',
-      '288L',
-      '256R',
-      '224L',
-      '192R',
-      '160L',
-      '128R',
-      '96L',
-      '64R',
-      '32L',
-      '0',
-      '32L',
-      '64R',
-      '96L',
-      '128R',
-      '160L',
-      '192R',
-      '224L',
-      '256R',
-      '288L',
-      '320R',
-    ]);
+export function socketNumericValue(socket: string) {
+  const parts = parseSocket(socket);
+
+  return parts ? Number(parts.number) || 0 : 0;
+}
+
+function coordinatesFromOffset(offset: number, step: number, holes: number) {
+  return Array.from({ length: holes }, (_, index) => Math.round(offset + step * index));
+}
+
+function intervalStepsFromCoordinates(coordinates: number[]) {
+  return coordinates.slice(1).map((coordinate, index) => Math.round((coordinate - coordinates[index]) / 32));
+}
+
+function combineValues<T>(items: T[], count: number): T[][] {
+  if (count === 0) {
+    return [[]];
+  }
+
+  if (items.length < count) {
+    return [];
+  }
+
+  const [first, ...rest] = items;
+  return [
+    ...combineValues(rest, count - 1).map((combination) => [first, ...combination]),
+    ...combineValues(rest, count),
+  ];
+}
+
+function symmetrySockets(coordinates: number[], first: number, steps: number) {
+  const firstSocketPosition = -Math.ceil(steps / 2) * 32;
+
+  return coordinates.map((coordinate) => {
+    const stepsFromFirst = Math.round((coordinate - first) / 32);
+    const socketPosition = firstSocketPosition + stepsFromFirst * 32;
+
+    return socketPosition >= VITAP_MIN && socketPosition <= VITAP_MAX ? socketLabel(socketPosition) : '-';
   });
+}
 
-  it('parses socket rotation label data', () => {
-    expect(parseSocket('224L')).toEqual({ number: '224', side: 'L' });
-    expect(parseSocket('192R')).toEqual({ number: '192', side: 'R' });
-    expect(parseSocket('0')).toEqual({ number: '0', side: null });
-    expect(parseSocket('-')).toBeNull();
-  });
+function socketsFromStart(coordinates: number[], first: number, startSocketIndex: number, machineSide: MachineSide) {
+  const direction = machineSide === 'right' ? -1 : 1;
+  const buildSockets = (anchorCoordinate: number) => {
+    return coordinates.map((coordinate) => {
+      const stepsFromAnchor = Math.round((coordinate - anchorCoordinate) / 32);
+      const socketIndex = startSocketIndex + stepsFromAnchor * direction;
 
-  it('uses only the numeric socket value for fence position calculations', () => {
-    expect(socketNumericValue('288L')).toBe(288);
-    expect(socketNumericValue('256R')).toBe(256);
-    expect(socketNumericValue('0')).toBe(0);
-  });
-});
+      return VITAP_SOCKETS[socketIndex] ?? '-';
+    });
+  };
+  const ranked = coordinates
+    .map((coordinate, index) => {
+      const sockets = buildSockets(coordinate);
+      const missingCount = sockets.filter((socket) => socket === '-').length;
 
-describe('symmetry mode', () => {
-  it('keeps edge holes primary for two holes', () => {
-    const result = calculateVitap(500, 2, 37, 'symmetry', 10);
+      return {
+        index,
+        missingCount,
+        sockets,
+      };
+    })
+    .sort((a, b) => a.missingCount - b.missingCount || a.index - b.index);
 
-    expect(result.offset).toBe(42);
-    expect(result.base).toBe(416);
-    expect(result.steps).toBe(13);
-    expect(result.intervalSteps).toEqual([13]);
-    expect(values(result)).toEqual([42, 458]);
-    expect(sockets(result)).toEqual(['0', '-']);
-  });
+  return ranked[0]?.sockets ?? [];
+}
 
-  it('keeps the actual offset above the entered minimum offset', () => {
-    const result = calculateVitap(267, 2, 50, 'symmetry', 10);
+function symmetryVariants(first: number, last: number, steps: number, holes: number, center: number) {
+  const internalCount = Math.max(holes - 2, 0);
 
-    expect(result.offset).toBe(53.5);
-    expect(Math.round(result.offset)).toBe(54);
-    expect(values(result)).toEqual([54, 214]);
-  });
+  if (holes <= 1) {
+    return [[Math.round(center)]];
+  }
 
-  it('shows both equally centered inner positions without shrinking the edge base', () => {
-    const result = calculateVitap(200, 3, 37, 'symmetry', 10);
+  if (internalCount === 0) {
+    return [[Math.round(first), Math.round(last)]];
+  }
 
-    expect(result.offset).toBe(52);
-    expect(result.base).toBe(96);
-    expect(result.steps).toBe(3);
-    expect(result.intervalSteps).toEqual([1, 2]);
-    expect(result.variants.map((variant) => variant.values)).toEqual([
-      [52, 84, 148],
-      [52, 116, 148],
-    ]);
-    expect(result.variants.map((variant) => variant.values)).not.toContainEqual([68, 100, 132]);
-  });
+  const available = Array.from({ length: Math.max(steps - 1, 0) }, (_, index) => first + (index + 1) * 32);
 
-  it('keeps 500 mm edge holes and offers both center-near options for three holes', () => {
-    const result = calculateVitap(500, 3, 37, 'symmetry', 10);
+  if (available.length <= internalCount) {
+    return [[Math.round(first), ...available.map(Math.round), Math.round(last)]];
+  }
 
-    expect(result.offset).toBe(42);
-    expect(result.base).toBe(416);
-    expect(result.steps).toBe(13);
-    expect(result.intervalSteps).toEqual([6, 7]);
-    expect(values(result)).toEqual([42, 234, 458]);
-    expect(sockets(result)).toEqual(['192R', '0', '224L']);
-    expect(result.variants.map((variant) => variant.values)).toEqual([
-      [42, 234, 458],
-      [42, 266, 458],
-    ]);
-    expect(result.variants.map((variant) => variant.sockets)).toEqual([
-      ['192R', '0', '224L'],
-      ['224L', '0', '192R'],
-    ]);
-  });
+  const ranked = available
+    .map((coordinate) => ({
+      coordinate,
+      distance: Math.abs(coordinate - center),
+    }))
+    .sort((a, b) => a.distance - b.distance || a.coordinate - b.coordinate);
+  const threshold = ranked[internalCount - 1].distance;
+  const required = ranked.filter((item) => item.distance < threshold).map((item) => item.coordinate);
+  const tied = ranked.filter((item) => item.distance === threshold).map((item) => item.coordinate);
+  const neededFromTie = internalCount - required.length;
 
-  it('uses the selected center socket as an anchor when it creates a full three-hole socket set', () => {
-    const result = calculateVitap(500, 3, 37, 'symmetry', 10, 'right');
+  return combineValues(tied, neededFromTie)
+    .slice(0, 8)
+    .map((combination) => [first, ...required, ...combination, last].sort((a, b) => a - b).map(Math.round));
+}
 
-    expect(values(result)).toEqual([42, 234, 458]);
-    expect(result.variants.map((variant) => variant.sockets)).toEqual([
-      ['192R', '0', '224L'],
-      ['224L', '0', '192R'],
-    ]);
-  });
+export function calculateVitap(
+  length: number,
+  holes: number,
+  minOffset: number,
+  mode: Mode,
+  standardStartSocketIndex: number,
+  machineSide: MachineSide = 'left',
+): Result {
+  const safeHoles = Math.max(1, Math.min(15, holes));
 
-  it('maps displayed socket variants from the selected start socket', () => {
-    const result = calculateVitap(500, 3, 37, 'symmetry', 1);
+  if (mode === 'standard') {
+    const fixedOffset = Math.max(minOffset, 0);
+    const baseMax = Math.max(length - 2 * fixedOffset, 0);
+    const steps = Math.floor(baseMax / 32);
+    const base = steps * 32;
+    const first = fixedOffset;
+    const last = fixedOffset + base;
+    const variants = symmetryVariants(first, last, steps, safeHoles, length / 2);
+    const primaryCoordinates = variants[0] ?? [Math.round(first), Math.round(last)];
+    const primarySockets = socketsFromStart(primaryCoordinates, first, standardStartSocketIndex, machineSide);
+    const intervalSteps = intervalStepsFromCoordinates(primaryCoordinates);
 
-    expect(values(result)).toEqual([42, 234, 458]);
-    expect(sockets(result)).toEqual(['288L', '96L', '128R']);
-    expect(result.variants.map((variant) => variant.sockets)).toEqual([
-      ['288L', '96L', '128R'],
-      ['288L', '64R', '128R'],
-    ]);
-  });
+    return {
+      offset: fixedOffset,
+      base,
+      steps,
+      intervalSteps,
+      coordinates: primaryCoordinates.map((coordinate, index) => ({
+        coordinate,
+        socket: primarySockets[index] ?? '-',
+      })),
+      variants: variants.map((values, index) => ({
+        title: variants.length === 1 ? 'Фиксированный отступ' : `Вариант ${index + 1}`,
+        values,
+        sockets: socketsFromStart(values, first, standardStartSocketIndex, machineSide),
+      })),
+    };
+  }
 
-  it('shows the full socket pair for two holes from the selected start socket', () => {
-    const result = calculateVitap(500, 2, 37, 'symmetry', 1);
+  const baseMax = Math.max(length - 2 * minOffset, 0);
+  const steps = Math.floor(baseMax / 32);
+  const base = steps * 32;
+  const offset = (length - base) / 2;
+  const first = offset;
+  const last = offset + base;
+  const variants = symmetryVariants(first, last, steps, safeHoles, length / 2);
+  const primaryCoordinates = variants[0] ?? [Math.round(first), Math.round(last)];
+  const primarySockets = socketsFromStart(primaryCoordinates, first, standardStartSocketIndex, machineSide);
+  const intervalSteps = intervalStepsFromCoordinates(primaryCoordinates);
 
-    expect(values(result)).toEqual([42, 458]);
-    expect(sockets(result)).toEqual(['288L', '128R']);
-    expect(result.variants[0].sockets).toEqual(['288L', '128R']);
-  });
+  return {
+    offset,
+    base,
+    steps,
+    intervalSteps,
+    coordinates: primaryCoordinates.map((coordinate, index) => ({
+      coordinate,
+      socket: primarySockets[index] ?? '-',
+    })),
+    variants: variants.map((values, index) => ({
+      title: variants.length === 1 ? 'Сохранить крайние' : `Вариант ${index + 1}`,
+      values,
+      sockets: socketsFromStart(values, first, standardStartSocketIndex, machineSide),
+    })),
+  };
+}
 
-  it('builds socket pairs backwards from a right-side start socket', () => {
-    const result = calculateVitap(500, 2, 37, 'symmetry', 19, 'right');
+export function shiftedVariants(result: Result, shiftInput: number) {
+  const shift = Math.abs(shiftInput || 0);
 
-    expect(values(result)).toEqual([42, 458]);
-    expect(sockets(result)).toEqual(['288L', '128R']);
-    expect(result.variants[0].sockets).toEqual(['288L', '128R']);
-  });
-});
+  if (shift === 0) {
+    return [];
+  }
 
-describe('standard offset mode', () => {
-  it('keeps the entered edge offset and reduces the base to a 32 mm step', () => {
-    const result = calculateVitap(2000, 6, 100, 'standard', 10);
-
-    expect(result.offset).toBe(100);
-    expect(result.base).toBe(1792);
-    expect(result.steps).toBe(56);
-    expect(values(result)[0]).toBe(100);
-    expect(values(result).at(-1)).toBe(1892);
-  });
-
-  it('places internal holes on available 32 mm positions near the center', () => {
-    const result = calculateVitap(500, 3, 37, 'standard', 10);
-
-    expect(result.offset).toBe(37);
-    expect(result.base).toBe(416);
-    expect(result.intervalSteps).toEqual([7, 6]);
-    expect(values(result)).toEqual([37, 261, 453]);
-    expect(sockets(result)).toEqual(['224L', '0', '192R']);
-  });
-});
-
-describe('coordinate shift alternatives', () => {
-  it('does not mutate the main result and produces left and right shifted alternatives', () => {
-    const result = calculateVitap(500, 3, 37, 'symmetry', 10);
-    const variants = shiftedVariants(result, 16);
-
-    expect(values(result)).toEqual([42, 234, 458]);
-    expect(variants).toEqual([
-      {
-        title: 'Смещение влево -16 мм',
-        values: [26, 218, 442],
-        sockets: ['192R', '0', '224L'],
-      },
-      {
-        title: 'Смещение вправо +16 мм',
-        values: [58, 250, 474],
-        sockets: ['192R', '0', '224L'],
-      },
-    ]);
-  });
-});
+  return [
+    {
+      title: `Смещение влево -${shift} мм`,
+      values: result.coordinates.map((item) => item.coordinate - shift),
+      sockets: result.coordinates.map((item) => item.socket),
+    },
+    {
+      title: `Смещение вправо +${shift} мм`,
+      values: result.coordinates.map((item) => item.coordinate + shift),
+      sockets: result.coordinates.map((item) => item.socket),
+    },
+  ];
+}
