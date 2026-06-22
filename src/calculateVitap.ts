@@ -1,4 +1,5 @@
 export type Mode = 'symmetry' | 'standard';
+export type MachineSide = 'left' | 'right';
 
 export type Result = {
   offset: number;
@@ -82,10 +83,12 @@ function symmetrySockets(coordinates: number[], first: number, steps: number) {
   });
 }
 
-function socketsFromStart(coordinates: number[], first: number, startSocketIndex: number) {
+function socketsFromStart(coordinates: number[], first: number, startSocketIndex: number, machineSide: MachineSide) {
+  const direction = machineSide === 'right' ? -1 : 1;
+
   return coordinates.map((coordinate) => {
     const stepsFromFirst = Math.round((coordinate - first) / 32);
-    const socketIndex = startSocketIndex + stepsFromFirst;
+    const socketIndex = startSocketIndex + stepsFromFirst * direction;
 
     return VITAP_SOCKETS[socketIndex] ?? '-';
   });
@@ -130,6 +133,7 @@ export function calculateVitap(
   minOffset: number,
   mode: Mode,
   standardStartSocketIndex: number,
+  machineSide: MachineSide = 'left',
 ): Result {
   const safeHoles = Math.max(1, Math.min(15, holes));
 
@@ -142,7 +146,7 @@ export function calculateVitap(
     const last = fixedOffset + base;
     const variants = symmetryVariants(first, last, steps, safeHoles, length / 2);
     const primaryCoordinates = variants[0] ?? [Math.round(first), Math.round(last)];
-    const primarySockets = socketsFromStart(primaryCoordinates, first, standardStartSocketIndex);
+    const primarySockets = socketsFromStart(primaryCoordinates, first, standardStartSocketIndex, machineSide);
     const intervalSteps = intervalStepsFromCoordinates(primaryCoordinates);
 
     return {
@@ -157,7 +161,7 @@ export function calculateVitap(
       variants: variants.map((values, index) => ({
         title: variants.length === 1 ? 'Фиксированный отступ' : `Вариант ${index + 1}`,
         values,
-        sockets: socketsFromStart(values, first, standardStartSocketIndex),
+        sockets: socketsFromStart(values, first, standardStartSocketIndex, machineSide),
       })),
     };
   }
@@ -170,7 +174,7 @@ export function calculateVitap(
   const last = offset + base;
   const variants = symmetryVariants(first, last, steps, safeHoles, length / 2);
   const primaryCoordinates = variants[0] ?? [Math.round(first), Math.round(last)];
-  const primarySockets = socketsFromStart(primaryCoordinates, first, standardStartSocketIndex);
+  const primarySockets = socketsFromStart(primaryCoordinates, first, standardStartSocketIndex, machineSide);
   const intervalSteps = intervalStepsFromCoordinates(primaryCoordinates);
 
   return {
@@ -185,7 +189,7 @@ export function calculateVitap(
     variants: variants.map((values, index) => ({
       title: variants.length === 1 ? 'Сохранить крайние' : `Вариант ${index + 1}`,
       values,
-      sockets: socketsFromStart(values, first, standardStartSocketIndex),
+      sockets: socketsFromStart(values, first, standardStartSocketIndex, machineSide),
     })),
   };
 }
