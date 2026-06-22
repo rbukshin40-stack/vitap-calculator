@@ -85,13 +85,28 @@ function symmetrySockets(coordinates: number[], first: number, steps: number) {
 
 function socketsFromStart(coordinates: number[], first: number, startSocketIndex: number, machineSide: MachineSide) {
   const direction = machineSide === 'right' ? -1 : 1;
+  const buildSockets = (anchorCoordinate: number) => {
+    return coordinates.map((coordinate) => {
+      const stepsFromAnchor = Math.round((coordinate - anchorCoordinate) / 32);
+      const socketIndex = startSocketIndex + stepsFromAnchor * direction;
 
-  return coordinates.map((coordinate) => {
-    const stepsFromFirst = Math.round((coordinate - first) / 32);
-    const socketIndex = startSocketIndex + stepsFromFirst * direction;
+      return VITAP_SOCKETS[socketIndex] ?? '-';
+    });
+  };
+  const ranked = coordinates
+    .map((coordinate, index) => {
+      const sockets = buildSockets(coordinate);
+      const missingCount = sockets.filter((socket) => socket === '-').length;
 
-    return VITAP_SOCKETS[socketIndex] ?? '-';
-  });
+      return {
+        index,
+        missingCount,
+        sockets,
+      };
+    })
+    .sort((a, b) => a.missingCount - b.missingCount || a.index - b.index);
+
+  return ranked[0]?.sockets ?? [];
 }
 
 function symmetryVariants(first: number, last: number, steps: number, holes: number, center: number) {
