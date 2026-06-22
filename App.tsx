@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -21,6 +22,26 @@ import {
 const BLUE = '#2563EB';
 const holeOptions = Array.from({ length: 15 }, (_, index) => index + 1);
 type MachineSide = 'left' | 'right';
+type HistoryItem = {
+  id: string;
+  createdAt: string;
+  mode: Mode;
+  length: string;
+  holes: number;
+  minOffset: string;
+  coordinateShift: string;
+  standardStartSocketIndex: number;
+  machineSide: MachineSide;
+  coordinates: number[];
+  sockets: string[];
+  offset: number;
+  base: number;
+  steps: number;
+  fencePosition: number;
+};
+
+const HISTORY_KEY = '32-system-calculator-history-v1';
+const HISTORY_LIMIT = 10;
 
 export default function App() {
   const [mode, setMode] = useState<Mode>('symmetry');
@@ -32,16 +53,50 @@ export default function App() {
   const [standardStartSocketIndex, setStandardStartSocketIndex] = useState(10);
   const [isSocketDropdownOpen, setSocketDropdownOpen] = useState(false);
   const [machineSide, setMachineSide] = useState<MachineSide>('right');
+  const [history, setHistory] = useState<HistoryItem[]>([]);
 
   useEffect(() => {
-    const maxStartSocketIndex = Math.max(VITAP_SOCKETS.length - holes, 0);
+    async function loadHistory() {
+      try {
+        const rawHistory = await AsyncStorage.getItem(HISTORY_KEY);
 
-    setStandardStartSocketIndex((value) => Math.min(value, maxStartSocketIndex));
-  }, [holes]);
+        if (rawHistory) {
+          setHistory(JSON.parse(rawHistory));
+        }
+      } catch {
+        setHistory([]);
+      }
+    }
+
+    loadHistory();
+  }, []);
+
+  useEffect(() => {
+    const documentRef = globalThis.document;
+
+    if (!documentRef) {
+      return;
+    }
+
+    documentRef.documentElement.lang = 'ru';
+    documentRef.documentElement.setAttribute('translate', 'no');
+    documentRef.body?.classList.add('notranslate');
+    documentRef.title = '32 system Calculator';
+
+    let meta = documentRef.querySelector('meta[name="google"]');
+
+    if (!meta) {
+      meta = documentRef.createElement('meta');
+      meta.setAttribute('name', 'google');
+      documentRef.head.appendChild(meta);
+    }
+
+    meta.setAttribute('content', 'notranslate');
+  }, []);
 
   const rawResult = useMemo(
-    () => calculateVitap(Number(length) || 0, holes, Number(minOffset) || 0, mode, standardStartSocketIndex),
-    [holes, length, minOffset, mode, standardStartSocketIndex],
+    () => calculateVitap(Number(length) || 0, holes, Number(minOffset) || 0, mode, standardStartSocketIndex, machineSide),
+    [holes, length, machineSide, minOffset, mode, standardStartSocketIndex],
   );
   const shiftedVariants = useMemo(() => {
     return buildShiftedVariants(rawResult, Number(coordinateShift) || 0);
@@ -56,7 +111,9 @@ export default function App() {
   const fenceTitle = machineSide === 'right' ? 'Правый упор' : 'Левый упор';
   const detailLength = Number(length) || 0;
   const isCrossDrilling = detailLength > 800;
+  const hasBase = result.base > 0;
   const minimumOffset = Number(minOffset) || 0;
+  const isOffsetBelowMinimum = result.offset < minimumOffset;
   const isUnsafeVariant = (values: number[]) => {
     if (values.length === 0) {
       return false;
@@ -66,6 +123,59 @@ export default function App() {
     const rightOffset = detailLength - values[values.length - 1];
 
     return leftOffset < minimumOffset || rightOffset < minimumOffset;
+  };
+  const persistHistory = async (items: HistoryItem[]) => {
+    setHistory(items);
+
+    try {
+      await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(items));
+    } catch {
+      // История не должна ломать сам расчет, если хранилище временно недоступно.
+    }
+  };
+  const saveCalculation = () => {
+    const item: HistoryItem = {
+      id: `${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      mode,
+      length,
+      holes,
+      minOffset,
+      coordinateShift,
+      standardStartSocketIndex,
+      machineSide,
+      coordinates: result.coordinates.map((coordinate) => coordinate.coordinate),
+      sockets: result.coordinates.map((coordinate) => coordinate.socket),
+      offset: displayedOffset,
+      base: result.base,
+      steps: result.steps,
+      fencePosition: displayedFencePosition,
+    };
+    const duplicateKey = `${mode}|${length}|${holes}|${minOffset}|${coordinateShift}|${standardStartSocketIndex}|${machineSide}`;
+    const nextHistory = [
+      item,
+      ...history.filter((historyItem) => {
+        const historyKey = `${historyItem.mode}|${historyItem.length}|${historyItem.holes}|${historyItem.minOffset}|${historyItem.coordinateShift}|${historyItem.standardStartSocketIndex}|${historyItem.machineSide}`;
+
+        return historyKey !== duplicateKey;
+      }),
+    ].slice(0, HISTORY_LIMIT);
+
+    persistHistory(nextHistory);
+  };
+  const restoreHistoryItem = (item: HistoryItem) => {
+    setMode(item.mode);
+    setLength(item.length);
+    setHoles(item.holes);
+    setMinOffset(item.minOffset);
+    setCoordinateShift(item.coordinateShift);
+    setStandardStartSocketIndex(item.standardStartSocketIndex);
+    setMachineSide(item.machineSide);
+    setDropdownOpen(false);
+    setSocketDropdownOpen(false);
+  };
+  const deleteHistoryItem = (id: string) => {
+    persistHistory(history.filter((item) => item.id !== id));
   };
 
   return (
@@ -81,7 +191,7 @@ export default function App() {
           <SegmentButton active={mode === 'symmetry'} label="Симметрия" onPress={() => setMode('symmetry')} />
           <SegmentButton
             active={mode === 'standard'}
-            label="Произвольный"
+            label="Фиксированный отступ"
             onPress={() => setMode('standard')}
           />
         </View>
@@ -119,83 +229,101 @@ export default function App() {
               holes={holes}
             />
           ) : null}
-          <InputField label="Минимальный отступ" unit="мм" value={minOffset} onChangeText={setMinOffset} />
+          <InputField
+            label={mode === 'standard' ? 'Фиксированный отступ' : 'Минимальный отступ'}
+            unit="мм"
+            value={minOffset}
+            onChangeText={setMinOffset}
+          />
           <InputField label="Смещение координат" unit="мм" value={coordinateShift} onChangeText={setCoordinateShift} />
         </View>
 
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Результат</Text>
-          <View style={styles.primaryResultBlock}>
-            <View style={styles.primaryResultTop}>
-              <View style={styles.primaryResultItem}>
-                <Text style={styles.offsetLabel}>Фактический отступ</Text>
-                <Text style={styles.offsetValue}>{displayedOffset} мм</Text>
-              </View>
-              {!isCrossDrilling ? (
-                <>
-                  <View style={styles.primaryResultDivider} />
+          {isOffsetBelowMinimum ? (
+            <View style={styles.resultWarningBlock}>
+              <Text style={styles.resultWarningTitle}>Расчёт невозможен</Text>
+              <Text style={styles.resultWarningText}>Результат меньше заданного минимального отступа.</Text>
+            </View>
+          ) : (
+            <>
+              <View style={styles.primaryResultBlock}>
+                <View style={styles.primaryResultTop}>
                   <View style={styles.primaryResultItem}>
-                    <Text style={styles.fenceLabel}>{fenceTitle}</Text>
-                    <Text style={styles.fenceValue}>{displayedFencePosition} мм</Text>
+                    <Text style={styles.offsetLabel}>Фактический отступ</Text>
+                    <Text style={styles.offsetValue}>{displayedOffset} мм</Text>
                   </View>
-                </>
-              ) : null}
-            </View>
-            {!isCrossDrilling ? (
-              <View style={styles.fenceFormulaRow}>
-                <SocketBadge socket={startSocket} />
-                <Text style={styles.fenceFormulaText}>+ {displayedOffset} мм</Text>
+                  {!isCrossDrilling ? (
+                    <>
+                      <View style={styles.primaryResultDivider} />
+                      <View style={styles.primaryResultItem}>
+                        <Text style={styles.fenceLabel}>{fenceTitle}</Text>
+                        <Text style={styles.fenceValue}>{displayedFencePosition} мм</Text>
+                      </View>
+                    </>
+                  ) : null}
+                </View>
+                {!isCrossDrilling ? (
+                  <View style={styles.fenceFormulaRow}>
+                    <SocketBadge socket={startSocket} />
+                    <Text style={styles.fenceFormulaText}>+ {displayedOffset} мм</Text>
+                  </View>
+                ) : null}
+                {isCrossDrilling ? (
+                  <Text style={styles.crossDrillingNote}>Деталь шире 800 мм: сверление поперёк планки, упор и пары гнёзд не нужны.</Text>
+                ) : null}
               </View>
-            ) : null}
-            {isCrossDrilling ? (
-              <Text style={styles.crossDrillingNote}>Деталь шире 800 мм: сверление поперёк планки, упор и пары гнёзд не нужны.</Text>
-            ) : null}
-          </View>
-          <View style={styles.metricBlock}>
-            <Text style={styles.metricLabel}>База и шаги между отверстиями</Text>
-            <View style={styles.metricSummaryRow}>
-              <View style={styles.metricSummaryItem}>
-                <Text style={styles.metricSubLabel}>База</Text>
-                <Text style={styles.metricValue}>{result.base} мм</Text>
-              </View>
-              <View style={styles.metricSummaryDivider} />
-              <View style={styles.metricSummaryItem}>
-                <Text style={styles.metricSubLabel}>Шаги</Text>
-                <Text style={styles.metricValue}>{result.steps}</Text>
-                {shouldShowIntervalSteps ? <StepModel intervalSteps={result.intervalSteps} /> : null}
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.coordinatesSocketsBlock}>
-            <View style={styles.coordinatesColumn}>
-              <Text style={styles.tableHeaderText}>Координата</Text>
-              {result.coordinates.map((item, index) => (
-                <Text key={`${item.coordinate}-${index}`} style={styles.resultCoordinate}>
-                  {item.coordinate} мм
-                </Text>
-              ))}
-            </View>
-            {!isCrossDrilling ? (
-              <View style={styles.socketSetsColumn}>
-                <Text style={styles.socketSetsTitle}>Возможные пары гнёзд</Text>
-                {result.variants.slice(0, 3).map((variant) => (
-                  <View key={variant.title} style={styles.socketSetRow}>
-                    <Text style={styles.socketSetName}>{variant.title}</Text>
-                    <View style={styles.socketSetBadges}>
-                      <EdgeDirectionIndicator side={machineSide} />
-                      {variant.sockets.map((socket, index) => (
-                        <SocketBadge key={`${variant.title}-${socket}-${index}`} socket={socket} />
-                      ))}
+              {hasBase ? (
+                <View style={styles.metricBlock}>
+                  <Text style={styles.metricLabel}>База и шаги между отверстиями</Text>
+                  <View style={styles.metricSummaryRow}>
+                    <View style={styles.metricSummaryItem}>
+                      <Text style={styles.metricSubLabel}>База</Text>
+                      <Text style={styles.metricValue}>{result.base} мм</Text>
+                    </View>
+                    <View style={styles.metricSummaryDivider} />
+                    <View style={styles.metricSummaryItem}>
+                      <Text style={styles.metricSubLabel}>Шаги</Text>
+                      <Text style={styles.metricValue}>{result.steps}</Text>
+                      {shouldShowIntervalSteps ? <StepModel intervalSteps={result.intervalSteps} /> : null}
                     </View>
                   </View>
+                </View>
+              ) : null}
+            </>
+          )}
+
+          {!isOffsetBelowMinimum ? (
+            <View style={styles.coordinatesSocketsBlock}>
+              <View style={styles.coordinatesColumn}>
+                <Text style={styles.tableHeaderText}>Координата</Text>
+                {result.coordinates.map((item, index) => (
+                  <Text key={`${item.coordinate}-${index}`} style={styles.resultCoordinate}>
+                    {item.coordinate} мм
+                  </Text>
                 ))}
               </View>
-            ) : null}
-          </View>
+              {!isCrossDrilling && hasBase ? (
+                <View style={styles.socketSetsColumn}>
+                  <Text style={styles.socketSetsTitle}>Возможные пары гнёзд</Text>
+                  {result.variants.slice(0, 3).map((variant) => (
+                    <View key={variant.title} style={styles.socketSetRow}>
+                      <Text style={styles.socketSetName}>{variant.title}</Text>
+                      <View style={styles.socketSetBadges}>
+                        <EdgeDirectionIndicator side={machineSide} />
+                        {variant.sockets.map((socket, index) => (
+                          <SocketBadge key={`${variant.title}-${socket}-${index}`} socket={socket} />
+                        ))}
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+            </View>
+          ) : null}
         </View>
 
-        {visibleVariants.length > 0 ? (
+        {visibleVariants.length > 0 && !isOffsetBelowMinimum ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Альтернативные варианты</Text>
             <View style={styles.variantsRow}>
@@ -231,8 +359,49 @@ export default function App() {
         ) : null}
 
         <View style={styles.actions}>
-          <SecondaryButton label="Сохранить расчёт" />
+          <SecondaryButton label="Сохранить расчёт" onPress={saveCalculation} />
         </View>
+
+        {history.length > 0 ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>История</Text>
+            <View style={styles.historyList}>
+              {history.map((item) => {
+                const itemIsCrossDrilling = Number(item.length) > 800;
+
+                return (
+                  <View key={item.id} style={styles.historyCard}>
+                    <View style={styles.historyHeader}>
+                      <Text style={styles.historyTitle}>
+                        {item.mode === 'symmetry' ? 'Симметрия' : 'Фиксированный отступ'} · {item.length} мм · {item.holes} отв.
+                      </Text>
+                      <Text style={styles.historyDate}>
+                        {new Date(item.createdAt).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })}
+                      </Text>
+                    </View>
+                    <Text style={styles.historyMeta}>
+                      Отступ {item.offset} мм · База {item.base} мм · Шаги {item.steps}
+                    </Text>
+                    <Text style={styles.historyValues}>{item.coordinates.join(' / ')} мм</Text>
+                    {!itemIsCrossDrilling ? (
+                      <Text style={styles.historyMeta}>
+                        {item.machineSide === 'right' ? 'Правый упор' : 'Левый упор'} {item.fencePosition} мм
+                      </Text>
+                    ) : null}
+                    <View style={styles.historyActions}>
+                      <Pressable style={styles.historyButton} onPress={() => restoreHistoryItem(item)}>
+                        <Text style={styles.historyButtonText}>Открыть</Text>
+                      </Pressable>
+                      <Pressable style={[styles.historyButton, styles.historyDeleteButton]} onPress={() => deleteHistoryItem(item.id)}>
+                        <Text style={[styles.historyButtonText, styles.historyDeleteText]}>Удалить</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        ) : null}
       </ScrollView>
 
     </SafeAreaView>
@@ -275,13 +444,35 @@ function InputField({
   unit?: string;
   value: string;
 }) {
+  const handleChange = (nextValue: string) => {
+    onChangeText(nextValue.replace(',', '.'));
+  };
+  const handleWebInput = (event: unknown) => {
+    const target = (event as { target?: { value?: string } }).target;
+
+    if (typeof target?.value === 'string') {
+      handleChange(target.value);
+    }
+  };
+
   return (
     <View style={styles.inputGroup}>
       <Text style={styles.inputLabel}>{label}</Text>
       <View style={styles.inputBox}>
         <TextInput
           keyboardType="numeric"
-          onChangeText={onChangeText}
+          inputMode="decimal"
+          onChange={(event) => {
+            const nativeText = event.nativeEvent.text;
+            const targetValue = (event.target as unknown as { value?: string })?.value;
+            const nextValue = typeof nativeText === 'string' ? nativeText : targetValue;
+
+            if (typeof nextValue === 'string') {
+              handleChange(nextValue);
+            }
+          }}
+          onChangeText={handleChange}
+          {...({ onInput: handleWebInput } as object)}
           style={styles.input}
           value={value}
           selectTextOnFocus
@@ -438,9 +629,9 @@ function SocketDropdownField({
   );
 }
 
-function SecondaryButton({ label }: { label: string }) {
+function SecondaryButton({ label, onPress }: { label: string; onPress?: () => void }) {
   return (
-    <Pressable style={styles.secondaryButton}>
+    <Pressable style={styles.secondaryButton} onPress={onPress}>
       <Text style={styles.secondaryButtonText}>{label}</Text>
     </Pressable>
   );
@@ -570,6 +761,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
+  resultWarningBlock: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#DC2626',
+    borderRadius: 12,
+    borderWidth: 2,
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  resultWarningTitle: {
+    color: '#991B1B',
+    fontSize: 18,
+    fontWeight: '900',
+  },
   primaryResultTop: {
     alignItems: 'stretch',
     flexDirection: 'row',
@@ -672,6 +877,12 @@ const styles = StyleSheet.create({
     color: '#1E3A8A',
     fontSize: 12,
     fontWeight: '700',
+    lineHeight: 16,
+  },
+  resultWarningText: {
+    color: '#B91C1C',
+    fontSize: 12,
+    fontWeight: '900',
     lineHeight: 16,
   },
   stepModel: {
@@ -926,6 +1137,69 @@ const styles = StyleSheet.create({
     color: BLUE,
     fontSize: 14,
     fontWeight: '800',
+  },
+  historyList: {
+    gap: 8,
+  },
+  historyCard: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 7,
+    padding: 10,
+  },
+  historyHeader: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'space-between',
+  },
+  historyTitle: {
+    color: '#111827',
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  historyDate: {
+    color: '#64748B',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  historyMeta: {
+    color: '#64748B',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  historyValues: {
+    color: '#111827',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  historyActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  historyButton: {
+    alignItems: 'center',
+    backgroundColor: '#DBEAFE',
+    borderRadius: 9,
+    flex: 1,
+    height: 32,
+    justifyContent: 'center',
+  },
+  historyDeleteButton: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#E2E8F0',
+    borderWidth: 1,
+  },
+  historyButtonText: {
+    color: BLUE,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  historyDeleteText: {
+    color: '#64748B',
   },
   inlineDropdownMenu: {
     backgroundColor: '#FFFFFF',
