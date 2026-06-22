@@ -1,8 +1,9 @@
 {
-  "name": "vitap-calculator",
+  "name": "32-system",
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
+    "@react-native-async-storage/async-storage": "^3.1.1",
     "expo": "~56.0.12",
     "expo-status-bar": "~56.0.4",
     "react": "19.2.3",
