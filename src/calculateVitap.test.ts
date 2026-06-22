@@ -62,6 +62,14 @@ describe('symmetry mode', () => {
     expect(sockets(result)).toEqual(['0', '-']);
   });
 
+  it('keeps the actual offset above the entered minimum offset', () => {
+    const result = calculateVitap(267, 2, 50, 'symmetry', 10);
+
+    expect(result.offset).toBe(53.5);
+    expect(Math.round(result.offset)).toBe(54);
+    expect(values(result)).toEqual([54, 214]);
+  });
+
   it('shows both equally centered inner positions without shrinking the edge base', () => {
     const result = calculateVitap(200, 3, 37, 'symmetry', 10);
 
@@ -100,6 +108,22 @@ describe('symmetry mode', () => {
       ['288L', '96L', '128R'],
       ['288L', '64R', '128R'],
     ]);
+  });
+
+  it('shows the full socket pair for two holes from the selected start socket', () => {
+    const result = calculateVitap(500, 2, 37, 'symmetry', 1);
+
+    expect(values(result)).toEqual([42, 458]);
+    expect(sockets(result)).toEqual(['288L', '128R']);
+    expect(result.variants[0].sockets).toEqual(['288L', '128R']);
+  });
+
+  it('builds socket pairs backwards from a right-side start socket', () => {
+    const result = calculateVitap(500, 2, 37, 'symmetry', 19, 'right');
+
+    expect(values(result)).toEqual([42, 458]);
+    expect(sockets(result)).toEqual(['288L', '128R']);
+    expect(result.variants[0].sockets).toEqual(['288L', '128R']);
   });
 });
 
