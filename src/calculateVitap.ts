@@ -72,17 +72,6 @@ function combineValues<T>(items: T[], count: number): T[][] {
   ];
 }
 
-function symmetrySockets(coordinates: number[], first: number, steps: number) {
-  const firstSocketPosition = -Math.ceil(steps / 2) * 32;
-
-  return coordinates.map((coordinate) => {
-    const stepsFromFirst = Math.round((coordinate - first) / 32);
-    const socketPosition = firstSocketPosition + stepsFromFirst * 32;
-
-    return socketPosition >= VITAP_MIN && socketPosition <= VITAP_MAX ? socketLabel(socketPosition) : '-';
-  });
-}
-
 function socketsFromStart(coordinates: number[], first: number, startSocketIndex: number, machineSide: MachineSide) {
   const direction = machineSide === 'right' ? -1 : 1;
   const buildSockets = (anchorCoordinate: number) => {
@@ -109,8 +98,32 @@ function socketsFromStart(coordinates: number[], first: number, startSocketIndex
   return ranked[0]?.sockets ?? [];
 }
 
+function intervalSequences(steps: number, intervalCount: number) {
+  const shortStep = Math.floor(steps / intervalCount);
+  const longStepCount = steps % intervalCount;
+  const indexes = Array.from({ length: intervalCount }, (_, index) => index);
+
+  return combineValues(indexes, longStepCount)
+    .map((longStepIndexes) => {
+      const longStepSet = new Set(longStepIndexes);
+
+      return indexes.map((index) => shortStep + (longStepSet.has(index) ? 1 : 0));
+    })
+    .sort((a, b) => {
+      const symmetryA = a.reduce((sum, value, index) => sum + Math.abs(value - a[a.length - 1 - index]), 0);
+      const symmetryB = b.reduce((sum, value, index) => sum + Math.abs(value - b[b.length - 1 - index]), 0);
+
+      if (symmetryA !== symmetryB) {
+        return symmetryA - symmetryB;
+      }
+
+      return a.join(',').localeCompare(b.join(','));
+    });
+}
+
 function symmetryVariants(first: number, last: number, steps: number, holes: number, center: number) {
   const internalCount = Math.max(holes - 2, 0);
+  const intervalCount = Math.max(holes - 1, 1);
 
   if (holes <= 1) {
     return [[Math.round(center)]];
@@ -126,20 +139,20 @@ function symmetryVariants(first: number, last: number, steps: number, holes: num
     return [[Math.round(first), ...available.map(Math.round), Math.round(last)]];
   }
 
-  const ranked = available
-    .map((coordinate) => ({
-      coordinate,
-      distance: Math.abs(coordinate - center),
-    }))
-    .sort((a, b) => a.distance - b.distance || a.coordinate - b.coordinate);
-  const threshold = ranked[internalCount - 1].distance;
-  const required = ranked.filter((item) => item.distance < threshold).map((item) => item.coordinate);
-  const tied = ranked.filter((item) => item.distance === threshold).map((item) => item.coordinate);
-  const neededFromTie = internalCount - required.length;
-
-  return combineValues(tied, neededFromTie)
+  return intervalSequences(steps, intervalCount)
     .slice(0, 8)
-    .map((combination) => [first, ...required, ...combination, last].sort((a, b) => a - b).map(Math.round));
+    .map((intervals) => {
+      let coordinate = first;
+
+      return [
+        Math.round(first),
+        ...intervals.map((interval) => {
+          coordinate += interval * 32;
+
+          return Math.round(coordinate);
+        }),
+      ];
+    });
 }
 
 export function calculateVitap(
