@@ -18,10 +18,14 @@ import {
   type Mode,
   VITAP_SOCKETS,
 } from './src/calculateVitap';
+import { calculateShelves, type ShelfCalculationSide, type ShelfDistanceMode } from './src/calculateShelves';
 
 const BLUE = '#2563EB';
 const holeOptions = Array.from({ length: 15 }, (_, index) => index + 1);
+const shelfThicknessOptions = ['16', '18', '22', 'custom'] as const;
 type MachineSide = 'left' | 'right';
+type AppMode = Mode | 'shelves';
+type ShelfThicknessOption = (typeof shelfThicknessOptions)[number];
 type HistoryItem = {
   id: string;
   createdAt: string;
@@ -67,17 +71,27 @@ function normalizeSocketIndexForSide(socketIndex: number, machineSide: MachineSi
 }
 
 export default function App() {
-  const [mode, setMode] = useState<Mode>('symmetry');
-  const [length, setLength] = useState('500');
+  const [mode, setMode] = useState<AppMode>('symmetry');
+  const [length, setLength] = useState('');
   const [holes, setHoles] = useState(3);
-  const [minOffset, setMinOffset] = useState('37');
-  const [coordinateShift, setCoordinateShift] = useState('0');
+  const [minOffset, setMinOffset] = useState('');
+  const [coordinateShift, setCoordinateShift] = useState('');
   const [isDropdownOpen, setDropdownOpen] = useState(false);
   const [standardStartSocketIndex, setStandardStartSocketIndex] = useState(10);
   const [isSocketDropdownOpen, setSocketDropdownOpen] = useState(false);
   const [machineSide, setMachineSide] = useState<MachineSide>('right');
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [cabinetHeight, setCabinetHeight] = useState('');
+  const [shelfThicknessOption, setShelfThicknessOption] = useState<ShelfThicknessOption>('16');
+  const [customShelfThickness, setCustomShelfThickness] = useState('');
+  const [isShelfThicknessDropdownOpen, setShelfThicknessDropdownOpen] = useState(false);
+  const [shelfCalculationSide, setShelfCalculationSide] = useState<ShelfCalculationSide>('top');
+  const [shelfDistanceMode, setShelfDistanceMode] = useState<ShelfDistanceMode>('equal');
+  const [shelfCount, setShelfCount] = useState(5);
+  const [shelfEqualDistance, setShelfEqualDistance] = useState('');
+  const [shelfDistances, setShelfDistances] = useState(['', '', '', '', '']);
   const startSocketIndex = normalizeSocketIndexForSide(standardStartSocketIndex, machineSide);
+  const vitapMode: Mode = mode === 'shelves' ? 'symmetry' : mode;
 
   useEffect(() => {
     async function loadHistory() {
@@ -94,6 +108,18 @@ export default function App() {
 
     loadHistory();
   }, []);
+
+  useEffect(() => {
+    setShelfDistances((values) => {
+      const nextValues = [...values];
+
+      while (nextValues.length < shelfCount) {
+        nextValues.push('');
+      }
+
+      return nextValues.slice(0, shelfCount);
+    });
+  }, [shelfCount]);
 
   useEffect(() => {
     const documentRef = globalThis.document;
@@ -119,9 +145,31 @@ export default function App() {
   }, []);
 
   const rawResult = useMemo(
-    () => calculateVitap(Number(length) || 0, holes, Number(minOffset) || 0, mode, startSocketIndex, machineSide),
-    [holes, length, machineSide, minOffset, mode, startSocketIndex],
+    () => calculateVitap(Number(length) || 0, holes, Number(minOffset) || 0, vitapMode, startSocketIndex, machineSide),
+    [holes, length, machineSide, minOffset, startSocketIndex, vitapMode],
   );
+  const shelfThickness = shelfThicknessOption === 'custom' ? Number(customShelfThickness) || 0 : Number(shelfThicknessOption);
+  const shelfDistanceValues = shelfDistances.slice(0, shelfCount).map((distance) => Number(distance) || 0);
+  const shelfFirstOffset = shelfDistances[0] ?? '';
+  const hasVitapRequiredInputs = length.trim() !== '' && minOffset.trim() !== '';
+  const requiredShelfDistances =
+    shelfDistanceMode === 'equal'
+      ? [shelfFirstOffset, ...(shelfCount > 1 ? [shelfEqualDistance] : [])]
+      : shelfDistances.slice(0, shelfCount);
+  const hasShelfRequiredInputs =
+    (shelfThicknessOption !== 'custom' || customShelfThickness.trim() !== '') &&
+    requiredShelfDistances.every((distance) => distance.trim() !== '');
+  const shelfResult = useMemo(() => {
+    return calculateShelves({
+      cabinetHeight: cabinetHeight.trim() ? Number(cabinetHeight) || 0 : undefined,
+      shelfThickness,
+      side: shelfCalculationSide,
+      shelfCount,
+      distanceMode: shelfDistanceMode,
+      equalDistance: Number(shelfEqualDistance) || 0,
+      distances: shelfDistanceValues,
+    });
+  }, [cabinetHeight, shelfCount, shelfDistanceMode, shelfDistanceValues, shelfCalculationSide, shelfEqualDistance, shelfThickness]);
   const shiftedVariants = useMemo(() => {
     return buildShiftedVariants(rawResult, Number(coordinateShift) || 0);
   }, [coordinateShift, rawResult]);
@@ -161,7 +209,7 @@ export default function App() {
     const item: HistoryItem = {
       id: `${Date.now()}`,
       createdAt: new Date().toISOString(),
-      mode,
+      mode: vitapMode,
       length,
       holes,
       minOffset,
@@ -201,6 +249,15 @@ export default function App() {
   const deleteHistoryItem = (id: string) => {
     persistHistory(history.filter((item) => item.id !== id));
   };
+  const updateShelfDistance = (index: number, value: string) => {
+    setShelfDistances((distances) => {
+      const nextDistances = [...distances];
+
+      nextDistances[index] = value;
+
+      return nextDistances;
+    });
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -218,53 +275,190 @@ export default function App() {
             label="Фиксированный отступ"
             onPress={() => setMode('standard')}
           />
+          <SegmentButton active={mode === 'shelves'} label="Присадка полок" onPress={() => setMode('shelves')} />
         </View>
 
-        <View style={styles.card}>
-          <InputField label="Длина детали" unit="мм" value={length} onChangeText={setLength} />
-          <DropdownField
-            isOpen={isDropdownOpen}
-            label="Количество отверстий"
-            onPress={() => {
-              setSocketDropdownOpen(false);
-              setDropdownOpen((value) => !value);
-            }}
-            onSelect={(value) => {
-              setHoles(value);
-              setDropdownOpen(false);
-            }}
-            value={holes}
-          />
-          {!isCrossDrilling ? (
-            <SocketDropdownField
-              isOpen={isSocketDropdownOpen}
-              label="Стартовое гнездо"
-              machineSide={machineSide}
+        {mode === 'shelves' ? (
+          <View style={styles.card}>
+            <InputField label="Длина детали" maxValue={3000} unit="мм" value={cabinetHeight} onChangeText={setCabinetHeight} />
+            <ThicknessDropdownField
+              isOpen={isShelfThicknessDropdownOpen}
               onPress={() => {
                 setDropdownOpen(false);
-                setSocketDropdownOpen((value) => !value);
-              }}
-              onMachineSideSelect={setMachineSide}
-              onSelect={(value) => {
-                setStandardStartSocketIndex(value);
                 setSocketDropdownOpen(false);
+                setShelfThicknessDropdownOpen((value) => !value);
               }}
-              value={startSocketIndex}
-              holes={holes}
+              onSelect={(value) => {
+                setShelfThicknessOption(value);
+                setShelfThicknessDropdownOpen(false);
+              }}
+              value={shelfThicknessOption}
             />
-          ) : null}
-          <InputField
-            label={mode === 'standard' ? 'Фиксированный отступ' : 'Минимальный отступ'}
-            unit="мм"
-            value={minOffset}
-            onChangeText={setMinOffset}
-          />
-          <InputField label="Смещение координат" unit="мм" value={coordinateShift} onChangeText={setCoordinateShift} />
-        </View>
+            {shelfThicknessOption === 'custom' ? (
+              <InputField label="Толщина полки" unit="мм" value={customShelfThickness} onChangeText={setCustomShelfThickness} />
+            ) : null}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Сторона расчёта</Text>
+              <View style={styles.segmentedControl}>
+                <SegmentButton
+                  active={shelfCalculationSide === 'top'}
+                  label="Сверху"
+                  onPress={() => setShelfCalculationSide('top')}
+                />
+                <SegmentButton
+                  active={shelfCalculationSide === 'bottom'}
+                  label="Снизу"
+                  onPress={() => setShelfCalculationSide('bottom')}
+                />
+              </View>
+            </View>
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Тип расстояний</Text>
+              <View style={styles.segmentedControl}>
+                <SegmentButton
+                  active={shelfDistanceMode === 'equal'}
+                  label="Одинаковые"
+                  onPress={() => setShelfDistanceMode('equal')}
+                />
+                <SegmentButton
+                  active={shelfDistanceMode === 'custom'}
+                  label="Разные"
+                  onPress={() => setShelfDistanceMode('custom')}
+                />
+              </View>
+            </View>
+            <DropdownField
+              isOpen={isDropdownOpen}
+              label="Количество полок"
+              onPress={() => {
+                setShelfThicknessDropdownOpen(false);
+                setSocketDropdownOpen(false);
+                setDropdownOpen((value) => !value);
+              }}
+              onSelect={(value) => {
+                setShelfCount(value);
+                setDropdownOpen(false);
+              }}
+              value={shelfCount}
+            />
+            {shelfDistanceMode === 'equal' ? (
+              <>
+                <InputField
+                  label="Отступ до полки №1"
+                  unit="мм"
+                  value={shelfFirstOffset}
+                  onChangeText={(value) => updateShelfDistance(0, value)}
+                />
+                <InputField
+                  label="Расстояние между полками"
+                  unit="мм"
+                  value={shelfEqualDistance}
+                  onChangeText={setShelfEqualDistance}
+                />
+              </>
+            ) : (
+              Array.from({ length: shelfCount }, (_, index) => (
+                <InputField
+                  key={`shelf-distance-${index}`}
+                  label={index === 0 ? 'Отступ до полки №1' : `Полка ${index} → Полка ${index + 1}`}
+                  unit="мм"
+                  value={shelfDistances[index] ?? ''}
+                  onChangeText={(value) => updateShelfDistance(index, value)}
+                />
+              ))
+            )}
+          </View>
+        ) : (
+          <View style={styles.card}>
+            <InputField label="Длина детали" maxValue={3000} unit="мм" value={length} onChangeText={setLength} />
+            <DropdownField
+              isOpen={isDropdownOpen}
+              label="Количество отверстий"
+              onPress={() => {
+                setShelfThicknessDropdownOpen(false);
+                setSocketDropdownOpen(false);
+                setDropdownOpen((value) => !value);
+              }}
+              onSelect={(value) => {
+                setHoles(value);
+                setDropdownOpen(false);
+              }}
+              value={holes}
+            />
+            {!isCrossDrilling ? (
+              <SocketDropdownField
+                isOpen={isSocketDropdownOpen}
+                label="Стартовое гнездо"
+                machineSide={machineSide}
+                onPress={() => {
+                  setDropdownOpen(false);
+                  setShelfThicknessDropdownOpen(false);
+                  setSocketDropdownOpen((value) => !value);
+                }}
+                onMachineSideSelect={setMachineSide}
+                onSelect={(value) => {
+                  setStandardStartSocketIndex(value);
+                  setSocketDropdownOpen(false);
+                }}
+                value={startSocketIndex}
+                holes={holes}
+              />
+            ) : null}
+            <InputField
+              label={mode === 'standard' ? 'Фиксированный отступ' : 'Минимальный отступ'}
+              unit="мм"
+              value={minOffset}
+              onChangeText={setMinOffset}
+            />
+            <InputField label="Смещение координат" unit="мм" value={coordinateShift} onChangeText={setCoordinateShift} />
+          </View>
+        )}
 
+        {mode === 'shelves' ? (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Результат</Text>
+            {!hasShelfRequiredInputs ? (
+              <View style={styles.emptyResultBlock}>
+                <Text style={styles.emptyResultText}>Введите данные для расчёта</Text>
+              </View>
+            ) : (
+              <>
+                <View style={styles.primaryResultBlock}>
+                  <Text style={styles.offsetLabel}>
+                    Координаты от {shelfCalculationSide === 'top' ? 'верхнего' : 'нижнего'} края
+                  </Text>
+                  <View style={styles.shelfResultList}>
+                    {shelfResult.coordinates.map((coordinate, index) => (
+                      <View key={`shelf-result-${index}`} style={styles.shelfResultRow}>
+                        <Text style={styles.resultCoordinate}>Полка №{index + 1}</Text>
+                        <Text style={styles.resultCoordinate}>{coordinate} мм</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+                {shelfResult.fits === false ? (
+                  <View style={styles.resultWarningBlock}>
+                    <Text style={styles.resultWarningTitle}>Полки не помещаются в стойку</Text>
+                    <Text style={styles.resultWarningText}>Проверь высоту стойки или расстояния между полками.</Text>
+                  </View>
+                ) : null}
+                {shelfResult.fits === true && shelfResult.remainingToEdge !== null ? (
+                  <View style={styles.metricBlock}>
+                    <Text style={styles.metricLabel}>Проверка высоты стойки</Text>
+                    <Text style={styles.metricValue}>Остаток до края: {shelfResult.remainingToEdge} мм</Text>
+                  </View>
+                ) : null}
+              </>
+            )}
+          </View>
+        ) : (
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Результат</Text>
-          {isOffsetBelowMinimum ? (
+          {!hasVitapRequiredInputs ? (
+            <View style={styles.emptyResultBlock}>
+              <Text style={styles.emptyResultText}>Введите данные для расчёта</Text>
+            </View>
+          ) : isOffsetBelowMinimum ? (
             <View style={styles.resultWarningBlock}>
               <Text style={styles.resultWarningTitle}>Расчёт невозможен</Text>
               <Text style={styles.resultWarningText}>Результат меньше заданного минимального отступа.</Text>
@@ -323,7 +517,7 @@ export default function App() {
             </>
           )}
 
-          {!isOffsetBelowMinimum ? (
+          {hasVitapRequiredInputs && !isOffsetBelowMinimum ? (
             <View style={styles.coordinatesSocketsBlock}>
               <View style={styles.coordinatesColumn}>
                 <Text style={styles.tableHeaderText}>Координата</Text>
@@ -352,8 +546,9 @@ export default function App() {
             </View>
           ) : null}
         </View>
+        )}
 
-        {visibleVariants.length > 0 && !isOffsetBelowMinimum ? (
+        {mode !== 'shelves' && hasVitapRequiredInputs && visibleVariants.length > 0 && !isOffsetBelowMinimum ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Альтернативные варианты</Text>
             <View style={styles.variantsRow}>
@@ -388,11 +583,13 @@ export default function App() {
           </View>
         ) : null}
 
-        <View style={styles.actions}>
-          <SecondaryButton label="Сохранить расчёт" onPress={saveCalculation} />
-        </View>
+        {mode !== 'shelves' && hasVitapRequiredInputs ? (
+          <View style={styles.actions}>
+            <SecondaryButton label="Сохранить расчёт" onPress={saveCalculation} />
+          </View>
+        ) : null}
 
-        {history.length > 0 ? (
+        {mode !== 'shelves' && history.length > 0 ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>История</Text>
             <View style={styles.historyList}>
@@ -465,17 +662,33 @@ function StepModel({ intervalSteps }: { intervalSteps: number[] }) {
 
 function InputField({
   label,
+  maxValue,
   onChangeText,
+  placeholder = 'Введите значение',
   unit,
   value,
 }: {
   label: string;
+  maxValue?: number;
   onChangeText: (value: string) => void;
+  placeholder?: string;
   unit?: string;
   value: string;
 }) {
   const handleChange = (nextValue: string) => {
-    onChangeText(nextValue.replace(',', '.'));
+    const digitsOnly = nextValue.replace(/\D/g, '');
+
+    if (!digitsOnly) {
+      onChangeText('');
+      return;
+    }
+
+    if (typeof maxValue === 'number') {
+      onChangeText(String(Math.min(Number(digitsOnly), maxValue)));
+      return;
+    }
+
+    onChangeText(digitsOnly);
   };
   const handleWebInput = (event: unknown) => {
     const target = (event as { target?: { value?: string } }).target;
@@ -490,8 +703,8 @@ function InputField({
       <Text style={styles.inputLabel}>{label}</Text>
       <View style={styles.inputBox}>
         <TextInput
-          keyboardType="numeric"
-          inputMode="decimal"
+          keyboardType="number-pad"
+          inputMode="numeric"
           onChange={(event) => {
             const nativeText = event.nativeEvent.text;
             const targetValue = (event.target as unknown as { value?: string })?.value;
@@ -503,6 +716,8 @@ function InputField({
           }}
           onChangeText={handleChange}
           {...({ onInput: handleWebInput } as object)}
+          placeholder={placeholder}
+          placeholderTextColor="#94A3B8"
           style={styles.input}
           value={value}
           selectTextOnFocus
@@ -542,6 +757,51 @@ function DropdownField({
               onPress={() => onSelect(option)}
             >
               <Text style={[styles.inlineOptionText, option === value && styles.inlineOptionTextActive]}>{option}</Text>
+              {option === value ? <Text style={styles.inlineSelectedMark}>✓</Text> : null}
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function ThicknessDropdownField({
+  isOpen,
+  onPress,
+  onSelect,
+  value,
+}: {
+  isOpen: boolean;
+  onPress: () => void;
+  onSelect: (value: ShelfThicknessOption) => void;
+  value: ShelfThicknessOption;
+}) {
+  const labelByValue: Record<ShelfThicknessOption, string> = {
+    '16': '16 мм',
+    '18': '18 мм',
+    '22': '22 мм',
+    custom: 'Другое',
+  };
+
+  return (
+    <View style={styles.inputGroup}>
+      <Text style={styles.inputLabel}>Толщина полки</Text>
+      <Pressable style={styles.inputBox} onPress={onPress}>
+        <Text style={styles.dropdownValue}>{labelByValue[value]}</Text>
+        <Text style={styles.chevron}>⌄</Text>
+      </Pressable>
+      {isOpen ? (
+        <View style={styles.inlineDropdownMenu}>
+          {shelfThicknessOptions.map((option) => (
+            <Pressable
+              key={option}
+              style={[styles.inlineOption, option === value && styles.inlineOptionActive]}
+              onPress={() => onSelect(option)}
+            >
+              <Text style={[styles.inlineOptionText, option === value && styles.inlineOptionTextActive]}>
+                {labelByValue[option]}
+              </Text>
               {option === value ? <Text style={styles.inlineSelectedMark}>✓</Text> : null}
             </Pressable>
           ))}
@@ -687,8 +947,8 @@ const styles = StyleSheet.create({
   },
   title: {
     color: '#111827',
-    fontSize: 28,
-    fontWeight: '800',
+    fontSize: 26,
+    fontWeight: '700',
     letterSpacing: 0,
   },
   subtitle: {
@@ -720,7 +980,7 @@ const styles = StyleSheet.create({
   },
   segmentTextActive: {
     color: '#111827',
-    fontWeight: '800',
+    fontWeight: '700',
   },
   card: {
     backgroundColor: '#FFFFFF',
@@ -751,8 +1011,8 @@ const styles = StyleSheet.create({
   input: {
     color: '#111827',
     flex: 1,
-    fontSize: 21,
-    fontWeight: '800',
+    fontSize: 20,
+    fontWeight: '700',
     padding: 0,
   },
   unit: {
@@ -763,19 +1023,19 @@ const styles = StyleSheet.create({
   dropdownValue: {
     color: '#111827',
     flex: 1,
-    fontSize: 21,
-    fontWeight: '800',
+    fontSize: 20,
+    fontWeight: '700',
   },
   chevron: {
     color: '#64748B',
     fontSize: 22,
-    fontWeight: '800',
+    fontWeight: '700',
     marginTop: -4,
   },
   cardTitle: {
     color: '#111827',
     fontSize: 18,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   offsetBlock: {
     backgroundColor: '#DBEAFE',
@@ -802,8 +1062,8 @@ const styles = StyleSheet.create({
   },
   resultWarningTitle: {
     color: '#991B1B',
-    fontSize: 18,
-    fontWeight: '900',
+    fontSize: 17,
+    fontWeight: '700',
   },
   primaryResultTop: {
     alignItems: 'stretch',
@@ -825,8 +1085,8 @@ const styles = StyleSheet.create({
   },
   offsetValue: {
     color: BLUE,
-    fontSize: 32,
-    fontWeight: '900',
+    fontSize: 30,
+    fontWeight: '700',
   },
   metricsRow: {
     flexDirection: 'row',
@@ -859,7 +1119,7 @@ const styles = StyleSheet.create({
   metricSubLabel: {
     color: '#64748B',
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   metricLabel: {
     color: '#64748B',
@@ -869,8 +1129,8 @@ const styles = StyleSheet.create({
   },
   metricValue: {
     color: '#111827',
-    fontSize: 24,
-    fontWeight: '900',
+    fontSize: 23,
+    fontWeight: '700',
   },
   fenceBlock: {
     backgroundColor: '#EFF6FF',
@@ -884,13 +1144,13 @@ const styles = StyleSheet.create({
   fenceLabel: {
     color: BLUE,
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
   },
   fenceValue: {
     color: '#111827',
-    fontSize: 30,
-    fontWeight: '900',
+    fontSize: 28,
+    fontWeight: '700',
   },
   fenceFormulaRow: {
     alignItems: 'center',
@@ -901,7 +1161,7 @@ const styles = StyleSheet.create({
   fenceFormulaText: {
     color: '#64748B',
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   crossDrillingNote: {
     color: '#1E3A8A',
@@ -912,8 +1172,21 @@ const styles = StyleSheet.create({
   resultWarningText: {
     color: '#B91C1C',
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: '700',
     lineHeight: 16,
+  },
+  emptyResultBlock: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+  },
+  emptyResultText: {
+    color: '#64748B',
+    fontSize: 14,
+    fontWeight: '700',
   },
   stepModel: {
     alignItems: 'center',
@@ -932,7 +1205,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     color: BLUE,
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: '700',
     minWidth: 24,
     overflow: 'hidden',
     paddingHorizontal: 7,
@@ -946,7 +1219,7 @@ const styles = StyleSheet.create({
   stepSeparator: {
     color: '#64748B',
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   tableHeader: {
     flexDirection: 'row',
@@ -955,9 +1228,18 @@ const styles = StyleSheet.create({
   tableHeaderText: {
     color: '#64748B',
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   resultRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  shelfResultList: {
+    gap: 9,
+    marginTop: 8,
+  },
+  shelfResultRow: {
+    alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
@@ -979,7 +1261,7 @@ const styles = StyleSheet.create({
   resultCoordinate: {
     color: '#111827',
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   resultSocket: {
     color: '#64748B',
@@ -995,7 +1277,7 @@ const styles = StyleSheet.create({
   socketSetsTitle: {
     color: '#64748B',
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   socketSetRow: {
     gap: 6,
@@ -1003,7 +1285,7 @@ const styles = StyleSheet.create({
   socketSetName: {
     color: '#111827',
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   edgeDirection: {
     alignItems: 'center',
@@ -1068,12 +1350,12 @@ const styles = StyleSheet.create({
   socketNumber: {
     color: '#111827',
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '700',
     lineHeight: 15,
   },
   socketSide: {
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: '700',
     lineHeight: 14,
   },
   socketLeft: {
@@ -1088,7 +1370,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     color: '#111827',
     fontSize: 17,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   variantsRow: {
     flexDirection: 'row',
@@ -1111,7 +1393,7 @@ const styles = StyleSheet.create({
   variantTitle: {
     color: '#111827',
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   variantValues: {
     flexDirection: 'row',
@@ -1121,7 +1403,7 @@ const styles = StyleSheet.create({
   variantSocketLabel: {
     color: '#64748B',
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   variantSockets: {
     flexDirection: 'row',
@@ -1133,7 +1415,7 @@ const styles = StyleSheet.create({
     borderRadius: 7,
     color: '#111827',
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '700',
     minWidth: 42,
     overflow: 'hidden',
     paddingVertical: 5,
@@ -1149,7 +1431,7 @@ const styles = StyleSheet.create({
   chooseButtonText: {
     color: BLUE,
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   actions: {
     gap: 7,
@@ -1166,7 +1448,7 @@ const styles = StyleSheet.create({
   secondaryButtonText: {
     color: BLUE,
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   historyList: {
     gap: 8,
@@ -1189,12 +1471,12 @@ const styles = StyleSheet.create({
     color: '#111827',
     flex: 1,
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   historyDate: {
     color: '#64748B',
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   historyMeta: {
     color: '#64748B',
@@ -1204,7 +1486,7 @@ const styles = StyleSheet.create({
   historyValues: {
     color: '#111827',
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   historyActions: {
     flexDirection: 'row',
@@ -1226,7 +1508,7 @@ const styles = StyleSheet.create({
   historyButtonText: {
     color: BLUE,
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   historyDeleteText: {
     color: '#64748B',
@@ -1265,7 +1547,7 @@ const styles = StyleSheet.create({
   socketColumnTitle: {
     color: '#64748B',
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   inlineOption: {
     alignItems: 'center',
@@ -1307,7 +1589,7 @@ const styles = StyleSheet.create({
   },
   inlineOptionTextActive: {
     color: BLUE,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   dropdownSocketValue: {
     flex: 1,
@@ -1319,11 +1601,11 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     color: '#64748B',
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   inlineSelectedMark: {
     color: BLUE,
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '700',
   },
 });
